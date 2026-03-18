@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: egs_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: egs
+      POSTGRES_PASSWORD: egspassword
+      POSTGRES_DB: egs_trip_tracker
+    volumes:
+      - egs_pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U egs -d egs_trip_tracker"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: egs_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://egs:egspassword@db:5432/egs_trip_tracker
+      PORT: 3000
+    ports:
+      - "3000:3000"
+
+volumes:
+  egs_pgdata:
+    driver: local
