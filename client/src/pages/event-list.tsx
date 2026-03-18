@@ -12,9 +12,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Label } from "@/components/ui/label";
 import { SentimentBar, SentimentBadge } from "@/components/sentiment-badge";
 import { useToast } from "@/hooks/use-toast";
+import { IngestModal } from "@/components/ingest-modal";
 import {
   Plus, Search, MapPin, Calendar, Users, FileText,
-  ChevronRight, Building2, Globe
+  ChevronRight, Building2, Globe, UploadCloud
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -33,6 +34,7 @@ export default function EventListPage() {
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [newEventOpen, setNewEventOpen] = useState(false);
+  const [ingestOpen, setIngestOpen] = useState(false);
   const qc = useQueryClient();
   const { toast } = useToast();
   const [form, setForm] = useState({ name: "", eventType: "conference", city: "", country: "", startDate: "", endDate: "" });
@@ -62,9 +64,14 @@ export default function EventListPage() {
           <h1 className="text-xl font-bold tracking-tight">Events & Trips</h1>
           <p className="text-sm text-muted-foreground mt-0.5">All BD/AM field reports and event coverage</p>
         </div>
-        <Button onClick={() => setNewEventOpen(true)} data-testid="button-new-event">
-          <Plus className="w-4 h-4 mr-1.5" />New Event
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setIngestOpen(true)} data-testid="button-upload-report">
+            <UploadCloud className="w-4 h-4 mr-1.5" />Upload Report
+          </Button>
+          <Button onClick={() => setNewEventOpen(true)} data-testid="button-new-event">
+            <Plus className="w-4 h-4 mr-1.5" />New Event
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
@@ -192,6 +199,9 @@ export default function EventListPage() {
           <p className="text-xs mt-1">Try adjusting your filters or create a new event</p>
         </div>
       )}
+
+      {/* Ingest Modal */}
+      <IngestModal open={ingestOpen} onOpenChange={setIngestOpen} />
 
       {/* New Event Dialog */}
       <Dialog open={newEventOpen} onOpenChange={setNewEventOpen}>

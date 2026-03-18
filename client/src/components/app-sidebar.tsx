@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import {
@@ -5,8 +6,10 @@ import {
   SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton,
   SidebarHeader, SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import { IngestModal } from "@/components/ingest-modal";
 import {
-  CalendarDays, LayoutDashboard, Gamepad2, Map, ChevronRight
+  CalendarDays, LayoutDashboard, Map, UploadCloud
 } from "lucide-react";
 
 const navItems = [
@@ -16,6 +19,7 @@ const navItems = [
 
 export function AppSidebar() {
   const [loc] = useHashLocation();
+  const [ingestOpen, setIngestOpen] = useState(false);
 
   return (
     <Sidebar>
@@ -54,8 +58,18 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="px-4 py-3 border-t">
+      <SidebarFooter className="px-4 py-3 border-t space-y-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full justify-start"
+          onClick={() => setIngestOpen(true)}
+          data-testid="sidebar-button-upload-report"
+        >
+          <UploadCloud className="w-3.5 h-3.5 mr-2" />Upload Report
+        </Button>
         <p className="text-xs text-muted-foreground">Epic Games Store Internal</p>
+        <IngestModal open={ingestOpen} onOpenChange={setIngestOpen} />
       </SidebarFooter>
     </Sidebar>
   );
