@@ -10,7 +10,10 @@ import {
   sourceDocuments,
 } from "@shared/schema";
 import { sql, count } from "drizzle-orm";
-import { log } from "./index";
+
+function log(msg: string) {
+  console.log(`${new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true })} [migrate] ${msg}`);
+}
 
 async function tableExists(tableName: string): Promise<boolean> {
   const result = await db.execute(sql`
@@ -243,11 +246,11 @@ async function createTablesIfNotExist() {
 async function seedIfEmpty() {
   const userCount = await db.select({ count: count() }).from(users);
   if (Number(userCount[0].count) > 0) {
-    log("DB already seeded — skipping seed", "migrate");
+    log("DB already seeded — skipping seed");
     return;
   }
 
-  log("Seeding initial data...", "migrate");
+  log("Seeding initial data...");
 
   // Users
   const [u1, u2, u3] = await db.insert(users).values([
@@ -382,12 +385,12 @@ async function seedIfEmpty() {
     { eventId: e2.id, sourceType: "google_doc", externalUrl: "https://docs.google.com/document/d/example-gamescom-2025", uploadedByUserId: u2.id, parsingStatus: "success", parsingLog: "Extracted 1 meeting block, 2 game mentions.", rawTextExcerpt: "Gamescom 2025 Notes — Jordan Rivera..." },
   ]);
 
-  log("Seed complete", "migrate");
+  log("Seed complete");
 }
 
 export async function runMigrations() {
-  log("Running migrations...", "migrate");
+  log("Running migrations...");
   await createTablesIfNotExist();
-  log("Tables ready", "migrate");
+  log("Tables ready");
   await seedIfEmpty();
 }

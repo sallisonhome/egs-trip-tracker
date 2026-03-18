@@ -557,4 +557,23 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+// Auto-select storage: Postgres when DATABASE_URL is set, otherwise in-memory.
+export async function createStorage(): Promise<IStorage> {
+  if (process.env.DATABASE_URL) {
+    const { DatabaseStorage } = await import("./db-storage");
+    return new DatabaseStorage();
+  }
+  return new MemStorage();
+}
+
+// Synchronous default export for backwards compat — overridden at startup via initStorage().
+let _storage: IStorage = new MemStorage();
+export const storage: IStorage = new Proxy({} as IStorage, {
+  get(_target, prop) {
+    return (_storage as any)[prop];
+  },
+});
+
+export function initStorage(s: IStorage) {
+  _storage = s;
+}

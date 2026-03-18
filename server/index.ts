@@ -3,6 +3,8 @@ import cors from "cors";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { createStorage, initStorage } from "./storage";
+import { runMigrations } from "./migrate";
 
 const app = express();
 const httpServer = createServer(app);
@@ -74,6 +76,15 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize storage (Postgres if DATABASE_URL set, else in-memory)
+  const storageInstance = await createStorage();
+  initStorage(storageInstance);
+
+  // Run DB migrations + seed if using Postgres
+  if (process.env.DATABASE_URL) {
+    await runMigrations();
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
