@@ -1,6 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-const API_BASE = "https://egstripreports.com";
+// In production point to the deployed backend; in dev use relative URLs (same origin)
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {

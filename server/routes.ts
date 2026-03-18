@@ -8,6 +8,13 @@ import {
   insertEventExecutiveSummarySchema, insertSourceDocumentSchema,
 } from "@shared/schema";
 
+// Convert empty strings to null for all fields — prevents DB type errors on optional fields
+function nullifyEmpty(obj: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(
+    Object.entries(obj).map(([k, v]) => [k, v === "" ? null : v])
+  );
+}
+
 export function registerRoutes(httpServer: Server, app: Express): Server {
 
   // ── Users ──
@@ -30,7 +37,7 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
   });
 
   app.post("/api/events", async (req, res) => {
-    const parsed = insertEventSchema.safeParse(req.body);
+    const parsed = insertEventSchema.safeParse(nullifyEmpty(req.body));
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const event = await storage.createEvent(parsed.data);
     res.status(201).json(event);
@@ -70,7 +77,7 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
   });
 
   app.post("/api/meetings", async (req, res) => {
-    const parsed = insertMeetingSchema.safeParse(req.body);
+    const parsed = insertMeetingSchema.safeParse(nullifyEmpty(req.body));
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const meeting = await storage.createMeeting(parsed.data);
     res.status(201).json(meeting);
