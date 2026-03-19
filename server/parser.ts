@@ -146,7 +146,9 @@ async function callClaude(rawText: string): Promise<ParsedReport> {
     log(`[parser] document truncated from ${rawText.length} to ${MAX_INPUT_CHARS} chars`, "parser");
   }
 
-  const message = await client.messages.create({
+  // Use streaming to avoid Anthropic's 10-minute non-streaming timeout
+  let text = "";
+  const stream = await client.messages.stream({
     model: "claude-sonnet-4-6",
     max_tokens: 64000,
     messages: [
@@ -157,11 +159,11 @@ async function callClaude(rawText: string): Promise<ParsedReport> {
     ],
     system: SYSTEM_PROMPT,
   });
-
-  const text = message.content
-    .filter((b) => b.type === "text")
-    .map((b) => (b as { type: "text"; text: string }).text)
-    .join("");
+  for await (const chunk of stream) {
+    if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+      text += chunk.delta.text;
+    }
+  }
 
   // Strip any accidental markdown fences
   const cleaned = text.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
@@ -500,7 +502,9 @@ export async function generateExecSummary(
     }).join("\n---\n");
 
     const client = new Anthropic({ apiKey });
-    const message = await client.messages.create({
+    // Use streaming to avoid Anthropic's 10-minute non-streaming timeout
+    let text = "";
+    const stream = await client.messages.stream({
       model: "claude-sonnet-4-6",
       max_tokens: 4096,
       system: EXEC_SUMMARY_PROMPT,
@@ -511,11 +515,11 @@ export async function generateExecSummary(
         },
       ],
     });
-
-    const text = message.content
-      .filter((b) => b.type === "text")
-      .map((b) => (b as { type: "text"; text: string }).text)
-      .join("");
+    for await (const chunk of stream) {
+      if (chunk.type === "content_block_delta" && chunk.delta.type === "text_delta") {
+        text += chunk.delta.text;
+      }
+    }
 
     const cleaned = text.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
     const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
