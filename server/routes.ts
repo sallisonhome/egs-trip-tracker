@@ -4,7 +4,7 @@ import multer from "multer";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import { storage } from "./storage";
-import { parseAndIngest, generateExecSummary } from "./parser";
+import { parseAndIngest, generateExecSummary, type ParseResult } from "./parser";
 import { log } from "./log";
 import {
   insertEventSchema, insertMeetingSchema, insertCompanySchema,
@@ -20,6 +20,54 @@ function nullifyEmpty(obj: Record<string, any>): Record<string, any> {
   return Object.fromEntries(
     Object.entries(obj).map(([k, v]) => [k, v === "" ? null : v])
   );
+}
+
+/**
+ * Determine the correct parsingStatus after an AI extraction run.
+ * - "success"          → meetings were created (even if some minor errors)
+ * - "partially_parsed" → no meetings created but no hard crash (Claude ran, found nothing;
+ *                        keeps Re-extract button visible so the user can retry)
+ * - "failed"           → should only be set on catch (Claude/API crash), never here
+ */
+function resolveParseStatus(
+  result: ParseResult
+): "success" | "partially_parsed" {
+  return result.meetingsCreated > 0 ? "success" : "partially_parsed";
+}
+
+/**
+ * Build the human-readable parsing log line shown on the source-doc card.
+ */
+function buildParseLog(result: ParseResult): string {
+  const parts = [
+    `AI extraction complete.`,
+    `Meetings: ${result.meetingsCreated}`,
+    `Companies: ${result.companiesCreated}`,
+    `Contacts: ${result.contactsCreated}`,
+    `Games: ${result.gamesCreated}`,
+    `Topics: ${result.topicsCreated}`,
+    ...(result.errors.length ? [`Errors: ${result.errors.join("; ")}`] : []),
+  ];
+  return parts.join(" \u00b7 ");
+}
+
+/**
+ * Trigger exec summary generation after a parse.
+ * Always checks the event's total meeting count — not just what this run created —
+ * so a re-extract that finds 0 NEW meetings still regenerates the summary if
+ * the event already has meetings from a prior upload.
+ */
+async function maybeGenerateExecSummary(eventId: number): Promise<void> {
+  try {
+    const evt = await storage.getEventById(eventId);
+    if (!evt) return;
+    const allMeetings = await storage.getMeetingsByEvent(eventId);
+    if (allMeetings.length > 0) {
+      await generateExecSummary(eventId, evt.name);
+    }
+  } catch (err: any) {
+    log(`[routes] exec summary trigger failed for event=${eventId}: ${err.message}`, "express");
+  }
 }
 
 export function registerRoutes(httpServer: Server, app: Express): Server {
@@ -247,23 +295,11 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
       (async () => {
         try {
           const result = await parseAndIngest(doc.id, doc.eventId, rawText);
-          const summary = [
-            `AI extraction complete.`,
-            `Meetings: ${result.meetingsCreated}`,
-            `Companies: ${result.companiesCreated}`,
-            `Contacts: ${result.contactsCreated}`,
-            `Games: ${result.gamesCreated}`,
-            `Topics: ${result.topicsCreated}`,
-            ...(result.errors.length ? [`Errors: ${result.errors.join("; ")}`] : []),
-          ].join(" \u00b7 ");
           await storage.updateSourceDocument(doc.id, {
-            parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
-            parsingLog: summary,
+            parsingStatus: resolveParseStatus(result),
+            parsingLog: buildParseLog(result),
           });
-          if (result.meetingsCreated > 0) {
-            const evt = await storage.getEventById(doc.eventId);
-            if (evt) await generateExecSummary(doc.eventId, evt.name);
-          }
+          await maybeGenerateExecSummary(doc.eventId);
         } catch (err: any) {
           await storage.updateSourceDocument(doc.id, {
             parsingStatus: "failed",
@@ -312,23 +348,11 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
       ;(async () => {
         try {
           const result = await parseAndIngest(doc.id, eid, rawText);
-          const summary = [
-            `AI extraction complete.`,
-            `Meetings: ${result.meetingsCreated}`,
-            `Companies: ${result.companiesCreated}`,
-            `Contacts: ${result.contactsCreated}`,
-            `Games: ${result.gamesCreated}`,
-            `Topics: ${result.topicsCreated}`,
-            ...(result.errors.length ? [`Errors: ${result.errors.join("; ")}`] : []),
-          ].join(" \u00b7 ");
           await storage.updateSourceDocument(doc.id, {
-            parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
-            parsingLog: summary,
+            parsingStatus: resolveParseStatus(result),
+            parsingLog: buildParseLog(result),
           });
-          if (result.meetingsCreated > 0) {
-            const evt = await storage.getEventById(eid);
-            if (evt) await generateExecSummary(eid, evt.name);
-          }
+          await maybeGenerateExecSummary(eid);
         } catch (err: any) {
           await storage.updateSourceDocument(doc.id, {
             parsingStatus: "failed",
@@ -405,23 +429,11 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
         ;(async () => {
           try {
             const result = await parseAndIngest(doc.id, eventId, rawText);
-            const summary = [
-              `AI extraction complete.`,
-              `Meetings: ${result.meetingsCreated}`,
-              `Companies: ${result.companiesCreated}`,
-              `Contacts: ${result.contactsCreated}`,
-              `Games: ${result.gamesCreated}`,
-              `Topics: ${result.topicsCreated}`,
-              ...(result.errors.length ? [`Errors: ${result.errors.join("; ")}`] : []),
-            ].join(" \u00b7 ");
             await storage.updateSourceDocument(doc.id, {
-              parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
-              parsingLog: summary,
+              parsingStatus: resolveParseStatus(result),
+              parsingLog: buildParseLog(result),
             });
-            if (result.meetingsCreated > 0) {
-              const evt = await storage.getEventById(eventId);
-              if (evt) await generateExecSummary(eventId, evt.name);
-            }
+            await maybeGenerateExecSummary(eventId);
           } catch (err: any) {
             await storage.updateSourceDocument(doc.id, {
               parsingStatus: "failed",
@@ -473,23 +485,11 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
     (async () => {
       try {
         const result = await parseAndIngest(id, doc.eventId, doc.rawText!);
-        const summary = [
-          `AI extraction complete.`,
-          `Meetings: ${result.meetingsCreated}`,
-          `Companies: ${result.companiesCreated}`,
-          `Contacts: ${result.contactsCreated}`,
-          `Games: ${result.gamesCreated}`,
-          `Topics: ${result.topicsCreated}`,
-          ...(result.errors.length ? [`Errors: ${result.errors.join("; ")}`] : []),
-        ].join(" \u00b7 ");
         await storage.updateSourceDocument(id, {
-          parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
-          parsingLog: summary,
+          parsingStatus: resolveParseStatus(result),
+          parsingLog: buildParseLog(result),
         });
-        if (result.meetingsCreated > 0) {
-          const evt = await storage.getEventById(doc.eventId);
-          if (evt) await generateExecSummary(doc.eventId, evt.name);
-        }
+        await maybeGenerateExecSummary(doc.eventId);
       } catch (err: any) {
         log(`[parse] error doc=${id}: ${err.message}`, "parser");
         await storage.updateSourceDocument(id, {

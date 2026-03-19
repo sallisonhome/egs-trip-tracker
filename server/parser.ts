@@ -68,21 +68,80 @@ interface ParsedReport {
 const SYSTEM_PROMPT = `You are an expert at parsing Epic Games Store (EGS) business development and account management trip reports.
 Given a raw trip report document, extract ALL meetings/interactions as individual records.
 
-DOCUMENT TYPES — handle all of these:
-1. Formal meeting-by-meeting reports: each company has its own section.
-2. Conference recap docs: interactions appear as sessions, panels, 1-on-1 meetings, booth visits, dinners, or brief "Other Meetings" bullet entries.
-3. Mixed formats: some formal + some bullet-point summaries.
+DOCUMENT TYPES — handle ALL of these, including the most informal:
+1. Formal meeting-by-meeting reports: each company has its own clearly labelled section with full details.
+2. Conference recap docs: interactions appear as sessions, panels, 1-on-1 meetings, booth visits, dinners, or brief bullet entries.
+3. Mixed formats: some formal sections + some bullet-point summaries.
+4. ULTRA-INFORMAL FIELD NOTES (very common): A company name appears as a standalone line or heading, followed by loose bullet points, sentence fragments, or slash-separated notes describing what was discussed. There are NO headers like "Meeting:", NO dates, and NO formal structure — just raw field notes taken at speed. TREAT EACH NAMED COMPANY BLOCK AS ONE MEETING RECORD.
 
-EXTRACTION RULES:
-- Treat EVERY distinct company interaction as its own meeting record — even if it is a single bullet or a brief "caught up with X" note.
-- For conference recaps, each company entry under "1-on-1 Meetings", "Other Meetings", "Dinners", "Sessions", or similar headings = one meeting.
+CRITICAL — HOW TO RECOGNISE THE INFORMAL FORMAT:
+If you see a pattern like:
+  CompanyName
+  - note about their games / portfolio / status
+  - another observation or comment
+
+  NextCompany
+  - their note
+
+→ Each company block = ONE meeting. Extract every block. NEVER return an empty meetings array if company names and notes are present.
+
+INFORMAL FORMAT PARSING RULES:
+- The company name is the first line / bold heading of each block.
+- Everything after it (bullets, dashes, slashes, fragments) becomes detailedNotes for that meeting.
+- Game titles or franchises mentioned in the notes → extract as games[] entries.
+- "Up to them if they want to onboard" = neutral sentiment; open to EGS but non-committal.
+- "Not interested" / "won't do" / "passed" / "declined" = negative sentiment.
+- "Excited" / "keen" / "committed" / "signed" = positive sentiment.
+- If no contact name is given, use an empty contacts array (do not invent names).
+- Slash-separated text like "Sports games / Football Top 11 / mobile" = game portfolio description, not separate meetings.
+- Write a concise 1-2 sentence summary field that synthesises the notes into a plain-English outcome statement.
+
+UNIVERSAL EXTRACTION RULES:
+- Treat EVERY distinct company interaction as its own meeting record — even if it is a single bullet or a one-liner.
+- For conference recaps, each company entry under any heading (1-on-1s, Other Meetings, Dinners, Sessions, etc.) = one meeting.
 - Do NOT merge multiple companies into one meeting record.
-- Do NOT skip any interaction, even if only a name + one sentence of context is given.
-- For sentiment: positive = interested/committed/excited/favorable, negative = rejected/blocked/concerns/pass, neutral = unclear/mixed/informational.
-- Map platform topics to canonical EGS names when possible (e.g. Revenue Share / Commercial Terms, Discovery & Featuring, Tools & SDK, Payments & Reporting, User Acquisition & Marketing, Competitive Intel).
-- For dates: infer the year from event context if only month/day is given.
-- Omit null/undefined optional fields rather than including them as null.
+- Do NOT skip any company mentioned, even if only a name + one sentence of context is given.
+- NEVER return meetings: [] if company names appear in the document — that is always an error.
+- For sentiment: positive = interested/committed/excited/favorable; negative = rejected/blocked/concerns/passed; neutral = unclear/mixed/informational/up-to-them.
+- Map platform topics to canonical EGS names when possible (e.g. Revenue Share / Commercial Terms, Discovery & Featuring, Tools & SDK, Payments & Reporting, User Acquisition & Marketing, Free Games Program, Competitive Intel).
+- For dates: infer the year from event context if only month/day is given. If no date is present at all, omit the field entirely.
+- Omit optional fields that have no value rather than setting them to null.
 - Return ONLY valid JSON — no markdown fences, no preamble, no trailing text.
+
+EXAMPLE — given this ultra-informal input:
+  Nordeus
+  Sports games / Football Top 11 / mobile
+  Up to them if they want to onboard now, we've spoken before
+
+  Handy Games
+  More games coming
+  We've attempted a few times to strike free games deals - not interested
+
+You MUST produce:
+{
+  "meetings": [
+    {
+      "companyName": "Nordeus",
+      "companyType": "developer",
+      "contacts": [],
+      "overallSentiment": "neutral",
+      "summary": "Brief conference touchpoint. Nordeus develops sports/mobile games including Football Top 11 and is open to EGS onboarding at their own pace.",
+      "detailedNotes": "Sports games / Football Top 11 / mobile. Up to them if they want to onboard now, we've spoken before.",
+      "games": [{ "title": "Football Top 11", "egsStatus": "under_discussion", "sentiment": "neutral", "discussionSummary": "Mobile sports game, open to onboarding but non-committal" }],
+      "topics": []
+    },
+    {
+      "companyName": "Handy Games",
+      "companyType": "developer",
+      "contacts": [],
+      "overallSentiment": "negative",
+      "summary": "Brief conference touchpoint. Handy Games has declined multiple previous free games deal approaches and remains uninterested.",
+      "detailedNotes": "More games coming. We've attempted a few times to strike free games deals - not interested.",
+      "games": [],
+      "topics": [{ "name": "Free Games Program", "category": "commercial", "sentiment": "negative", "feedbackSummary": "Attempted multiple times, not interested", "priority": "low" }]
+    }
+  ]
+}
 
 Return a JSON object matching this exact schema:
 
@@ -95,14 +154,14 @@ Return a JSON object matching this exact schema:
       "contacts": [
         { "name": "string", "title": "string?", "email": "string?" }
       ],
-      "meetingDate": "YYYY-MM-DD or null",
-      "startTime": "HH:MM or null",
-      "location": "venue/city or null",
+      "meetingDate": "YYYY-MM-DD — omit if unknown",
+      "startTime": "HH:MM — omit if unknown",
+      "location": "venue/city — omit if unknown",
       "format": "in_person | virtual | hybrid",
       "overallSentiment": "positive | neutral | negative",
-      "summary": "1-2 sentence summary of the interaction and outcome",
-      "detailedNotes": "full notes from the document for this interaction — preserve all detail",
-      "followUpActions": "comma-separated list of follow-up actions, or null",
+      "summary": "1-2 sentence plain-English summary of the interaction and outcome",
+      "detailedNotes": "full notes from the document for this interaction — preserve all detail verbatim",
+      "followUpActions": "comma-separated follow-up actions — omit if none",
       "games": [
         {
           "title": "game title",
@@ -110,8 +169,8 @@ Return a JSON object matching this exact schema:
           "dealStatus": "initial_outreach | in_negotiation | signed | lost",
           "discussionSummary": "what was discussed about this game",
           "sentiment": "positive | neutral | negative",
-          "projectedLaunchTiming": "e.g. Q4 2026 or null",
-          "keyQuotes": "direct quotes from the contact about this game or null"
+          "projectedLaunchTiming": "e.g. Q4 2026 — omit if unknown",
+          "keyQuotes": "direct quotes from the contact — omit if none"
         }
       ],
       "topics": [
@@ -120,7 +179,7 @@ Return a JSON object matching this exact schema:
           "category": "commercial | product | tech | marketing | operations",
           "sentiment": "positive | neutral | negative",
           "feedbackSummary": "what was said",
-          "requestOrBlocker": "specific request or blocker mentioned or null",
+          "requestOrBlocker": "specific request or blocker — omit if none",
           "priority": "low | medium | high"
         }
       ]
@@ -347,7 +406,10 @@ export async function parseAndIngest(
   }
 
   if (!parsed.meetings || parsed.meetings.length === 0) {
-    result.errors.push("No meetings extracted from document");
+    // Don't hard-fail — the file uploaded fine, Claude just couldn't find meetings.
+    // Returning with 0 meetingsCreated lets routes.ts mark status as "partially_parsed"
+    // so the Re-extract button stays visible and the user can retry.
+    result.errors.push("AI could not identify any company interactions in this document. Try re-extracting, or check that the document contains meeting/company notes.");
     return result;
   }
 
