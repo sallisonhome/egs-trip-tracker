@@ -33,8 +33,15 @@ services:
       DATABASE_URL: postgresql://egs:egspassword@db:5432/egs_trip_tracker
       PORT: 3000
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      NODE_OPTIONS: --max-old-space-size=512
     ports:
       - "3000:3000"
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
 
 volumes:
   egs_pgdata:

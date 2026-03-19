@@ -128,10 +128,23 @@ Return a JSON object matching this exact schema:
   ]
 }`;
 
+// Max characters to send to Claude — prevents OOM on very large documents.
+// 60k chars ≈ ~15k tokens of input, well within Claude's 1M context window.
+const MAX_INPUT_CHARS = 60_000;
+
 async function callClaude(rawText: string): Promise<ParsedReport> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY environment variable is not set");
   const client = new Anthropic({ apiKey });
+
+  // Truncate if needed to avoid OOM
+  const truncated = rawText.length > MAX_INPUT_CHARS
+    ? rawText.slice(0, MAX_INPUT_CHARS) + "\n\n[Document truncated for processing]"
+    : rawText;
+
+  if (rawText.length > MAX_INPUT_CHARS) {
+    log(`[parser] document truncated from ${rawText.length} to ${MAX_INPUT_CHARS} chars`, "parser");
+  }
 
   const message = await client.messages.create({
     model: "claude-sonnet-4-6",
@@ -139,7 +152,7 @@ async function callClaude(rawText: string): Promise<ParsedReport> {
     messages: [
       {
         role: "user",
-        content: `Parse the following EGS trip report and extract all structured data:\n\n---\n${rawText}\n---`,
+        content: `Parse the following EGS trip report and extract all structured data:\n\n---\n${truncated}\n---`,
       },
     ],
     system: SYSTEM_PROMPT,
