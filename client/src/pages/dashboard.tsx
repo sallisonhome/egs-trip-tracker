@@ -51,12 +51,19 @@ export default function DashboardPage() {
       const r = await fetch("/api/dashboard");
       return r.json();
     },
+    // Refresh every 8s so the dashboard updates after a parse completes
+    refetchInterval: 8000,
+    refetchIntervalInBackground: false,
   });
 
   const totalMeetings = (data?.events ?? []).reduce((s, e) => s + e.meetingCount, 0);
   const totalPos = (data?.events ?? []).reduce((s, e) => s + e.positiveCount, 0);
   const totalNeg = (data?.events ?? []).reduce((s, e) => s + e.negativeCount, 0);
   const totalNeu = (data?.events ?? []).reduce((s, e) => s + e.neutralCount, 0);
+
+  // Only show games/topics that have actual data from ingested reports
+  const activeGames = (data?.gamesWithTouchpoints ?? []).filter(g => g.touchpointCount > 0);
+  const activeTopics = (data?.topicsWithStats ?? []).filter(t => t.feedbackCount > 0);
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -77,8 +84,8 @@ export default function DashboardPage() {
           {[
             { label: "Total Events", value: data.events.length },
             { label: "Total Meetings", value: totalMeetings },
-            { label: "Tracked Games", value: data.gamesWithTouchpoints.length },
-            { label: "Platform Topics", value: data.topicsWithStats.length },
+            { label: "Tracked Games", value: activeGames.length },
+            { label: "Platform Topics", value: activeTopics.length },
           ].map(s => (
             <Card key={s.label} className="py-0">
               <CardContent className="p-3">
@@ -126,7 +133,7 @@ export default function DashboardPage() {
           </div>
           {isLoading && <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-20 bg-muted animate-pulse rounded-lg" />)}</div>}
           <div className="space-y-2.5" data-testid="games-touchpoints-list">
-            {data?.gamesWithTouchpoints.map(game => {
+            {activeGames.map(game => {
               const sentiment = overallSentiment(game.sentiments);
               return (
                 <Card key={game.id} data-testid={`game-card-${game.id}`}>
@@ -159,7 +166,7 @@ export default function DashboardPage() {
                 </Card>
               );
             })}
-            {data?.gamesWithTouchpoints.length === 0 && (
+            {activeGames.length === 0 && (
               <div className="text-center py-8 text-muted-foreground text-sm">
                 <Gamepad2 className="w-8 h-8 mx-auto mb-2 opacity-30" />No game data yet
               </div>
@@ -175,7 +182,7 @@ export default function DashboardPage() {
           </div>
           {isLoading && <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-20 bg-muted animate-pulse rounded-lg" />)}</div>}
           <div className="space-y-2.5" data-testid="platform-topics-list">
-            {data?.topicsWithStats.map(topic => {
+            {activeTopics.map(topic => {
               const sentiment = overallSentiment(
                 Array(topic.posCount).fill("positive").concat(
                   Array(topic.neutCount).fill("neutral"),
@@ -209,7 +216,7 @@ export default function DashboardPage() {
                 </Card>
               );
             })}
-            {data?.topicsWithStats.length === 0 && (
+            {activeTopics.length === 0 && (
               <div className="text-center py-8 text-muted-foreground text-sm">
                 <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-30" />No platform feedback yet
               </div>
@@ -230,7 +237,7 @@ export default function DashboardPage() {
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">BD — Top Opportunities</p>
-                {data.gamesWithTouchpoints
+                {activeGames
                   .filter(g => g.currentEgsStatus !== "not_coming" && overallSentiment(g.sentiments) !== "negative")
                   .slice(0, 3)
                   .map(g => (
@@ -242,7 +249,7 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Product — Top Blockers</p>
-                {data.topicsWithStats
+                {activeTopics
                   .filter(t => t.negCount > 0)
                   .sort((a, b) => b.negCount - a.negCount)
                   .slice(0, 3)
@@ -255,7 +262,7 @@ export default function DashboardPage() {
               </div>
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">AM — Watch List</p>
-                {data.gamesWithTouchpoints
+                {activeGames
                   .filter(g => g.currentEgsStatus === "not_coming" || overallSentiment(g.sentiments) === "negative")
                   .slice(0, 3)
                   .map(g => (
