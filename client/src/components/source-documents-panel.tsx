@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   FileText, Link2, Upload, AlignLeft,
   Clock, CheckCircle2, XCircle, AlertCircle,
-  RefreshCw, Loader2,
+  RefreshCw, Loader2, UploadCloud,
 } from "lucide-react";
 import { format } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
@@ -101,7 +101,11 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
           const StatusIcon = psc.icon;
           const isPending = doc.parsingStatus === "pending";
           const isReparsing = reparsingIds.includes(doc.id);
+          const isFailed = doc.parsingStatus === "failed" || doc.parsingStatus === "partially_parsed";
+          // Can re-run AI extraction if raw text exists
           const canReparse = !isPending && !isReparsing && !!doc.rawText;
+          // Can re-upload if failed/partial but no raw text stored (e.g. OOM during original upload)
+          const canReupload = isFailed && !doc.rawText && !isPending && !isReparsing;
 
           return (
             <div
@@ -151,6 +155,20 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
                       : <RefreshCw className="w-3 h-3" />
                     }
                     {isReparsing ? "Extracting…" : "Re-extract"}
+                  </button>
+                )}
+                {canReupload && (
+                  <button
+                    className="inline-flex items-center gap-1 h-6 px-2 text-xs mt-1 text-amber-600 hover:text-amber-700 dark:text-amber-400 dark:hover:text-amber-300 rounded cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onIngestClick?.();
+                    }}
+                    data-testid={`button-reupload-${doc.id}`}
+                  >
+                    <UploadCloud className="w-3 h-3" />
+                    Re-upload file
                   </button>
                 )}
               </div>
