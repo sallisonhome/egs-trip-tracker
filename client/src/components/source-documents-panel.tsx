@@ -52,23 +52,26 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
   });
 
   // Track which doc IDs are currently being re-extracted
-  const [reparsing, setReparsing] = useState<Set<number>>(new Set());
+  const [reparsingIds, setReparsingIds] = useState<number[]>([]);
 
   const parseMutation = useMutation({
     mutationFn: async (docId: number) => {
-      return apiRequest("POST", `/api/source-documents/${docId}/parse`);
+      const res = await fetch(`/api/source-documents/${docId}/parse`, { method: "POST" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
     },
     onMutate: (docId) => {
-      setReparsing(prev => new Set(prev).add(docId));
+      setReparsingIds(prev => [...prev, docId]);
     },
     onSuccess: (_data, docId) => {
-      setReparsing(prev => { const s = new Set(prev); s.delete(docId); return s; });
+      setReparsingIds(prev => prev.filter(id => id !== docId));
       qc.invalidateQueries({ queryKey: ["/api/events", eventId, "source-documents"] });
       qc.invalidateQueries({ queryKey: ["/api/events", eventId, "meetings"] });
       qc.invalidateQueries({ queryKey: ["/api/events", eventId] });
+      qc.invalidateQueries({ queryKey: ["/api/events", eventId, "executive-summary"] });
     },
     onError: (err: any, docId) => {
-      setReparsing(prev => { const s = new Set(prev); s.delete(docId); return s; });
+      setReparsingIds(prev => prev.filter(id => id !== docId));
       toast({ title: "Re-extract failed", description: err.message, variant: "destructive" });
     },
   });
@@ -97,7 +100,7 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
           const Icon = stc.icon;
           const StatusIcon = psc.icon;
           const isPending = doc.parsingStatus === "pending";
-          const isReparsing = reparsing.has(doc.id);
+          const isReparsing = reparsingIds.includes(doc.id);
           const canReparse = !isPending && !isReparsing && !!doc.rawText;
 
           return (
