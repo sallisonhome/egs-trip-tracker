@@ -125,18 +125,13 @@ async function callClaude(rawText: string): Promise<ParsedReport> {
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY environment variable is not set");
   const client = new Anthropic({ apiKey });
 
-  // Truncate rawText to ~8000 chars to avoid hitting token limits on very long docs
-  const truncated = rawText.length > 8000
-    ? rawText.slice(0, 8000) + "\n\n[Document truncated for length — extract what you can from the above]"
-    : rawText;
-
   const message = await client.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 8192,
+    max_tokens: 16000,
     messages: [
       {
         role: "user",
-        content: `Parse the following EGS trip report and extract all structured data:\n\n---\n${truncated}\n---`,
+        content: `Parse the following EGS trip report and extract all structured data:\n\n---\n${rawText}\n---`,
       },
     ],
     system: SYSTEM_PROMPT,
