@@ -81,25 +81,6 @@ function FileDropZone({
   );
 }
 
-async function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    // For .docx and .pdf, we read as text — it'll be raw bytes but stored for future parsing
-    reader.readAsText(file);
-  });
-}
-
-async function readFileAsDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 export function IngestModal({ open, onOpenChange, eventId: lockedEventId, eventName }: IngestModalProps) {
   const qc = useQueryClient();
   const { toast } = useToast();
@@ -183,26 +164,40 @@ export function IngestModal({ open, onOpenChange, eventId: lockedEventId, eventN
     if (!file || !resolvedEventId) return;
     setIsProcessing(true);
     try {
-      // Read as text for .txt / plain; for binary files store the name + size info
-      let rawText: string | undefined;
-      let rawTextExcerpt: string;
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("eventId", String(resolvedEventId));
+      formData.append("uploadedByUserId", "1");
 
-      if (file.type === "text/plain" || file.name.endsWith(".txt") || file.name.endsWith(".md")) {
-        rawText = await readFileAsText(file);
-        rawTextExcerpt = rawText.slice(0, 400);
-      } else {
-        // Binary file — store metadata, mark for future parsing
-        rawTextExcerpt = `[Binary file: ${file.name}, ${(file.size / 1024).toFixed(0)} KB, type: ${file.type || "unknown"}]`;
+      const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/upload-document`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: res.statusText }));
+        throw new Error(err.message ?? "Upload failed");
       }
 
-      ingest.mutate({
-        sourceType,
-        originalFileName: file.name,
-        rawText,
-        rawTextExcerpt,
+      const doc = await res.json();
+      qc.invalidateQueries({ queryKey: ["/api/events"] });
+      if (resolvedEventId) {
+        qc.invalidateQueries({ queryKey: [`/api/events/${resolvedEventId}/source-documents`] });
+      }
+
+      const charInfo = doc.characterCount > 0
+        ? ` Extracted ${doc.characterCount.toLocaleString()} characters.`
+        : " File stored — no text extracted.";
+
+      toast({
+        title: "Report uploaded",
+        description: `${file.name} added to ${resolvedEventName}.${charInfo}`,
       });
-    } catch {
-      toast({ title: "File read failed", description: "Could not read the file.", variant: "destructive" });
+      onOpenChange(false);
+      reset();
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message ?? "Please try again.", variant: "destructive" });
+    } finally {
       setIsProcessing(false);
     }
   };

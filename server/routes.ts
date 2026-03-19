@@ -1,5 +1,7 @@
 import type { Express } from "express";
 import type { Server } from "http";
+import multer from "multer";
+import mammoth from "mammoth";
 import { storage } from "./storage";
 import {
   insertEventSchema, insertMeetingSchema, insertCompanySchema,
@@ -7,6 +9,8 @@ import {
   insertPlatformTopicSchema, insertMeetingTopicSchema,
   insertEventExecutiveSummarySchema, insertSourceDocumentSchema,
 } from "@shared/schema";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 // Convert empty strings to null for all fields — prevents DB type errors on optional fields
 function nullifyEmpty(obj: Record<string, any>): Record<string, any> {
@@ -224,17 +228,74 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
   });
 
   app.post("/api/source-documents", async (req, res) => {
-    const parsed = insertSourceDocumentSchema.safeParse(req.body);
+    const parsed = insertSourceDocumentSchema.safeParse(nullifyEmpty(req.body));
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });
     const doc = await storage.createSourceDocument(parsed.data);
-    // In production, this would trigger an async parsing pipeline.
-    // For now we immediately mark as "success" with a stub log.
+    const rawText = parsed.data.rawText ?? "";
     const updated = await storage.updateSourceDocument(doc.id, {
       parsingStatus: "success",
-      parsingLog: `Auto-parsed at ${new Date().toISOString()}. Detected source type: ${doc.sourceType}.`,
-      rawTextExcerpt: (parsed.data.rawText ?? parsed.data.rawTextExcerpt ?? "").slice(0, 300),
+      parsingLog: `Ingested at ${new Date().toISOString()}. Source type: ${doc.sourceType}.`,
+      rawTextExcerpt: (rawText || parsed.data.rawTextExcerpt || "").slice(0, 400),
     });
     res.status(201).json(updated);
+  });
+
+  // ── File upload endpoint (Word / PDF / text) ──
+  app.post("/api/upload-document", upload.single("file"), async (req, res) => {
+    try {
+      const file = req.file;
+      const eventId = parseInt(req.body.eventId);
+      const uploadedByUserId = req.body.uploadedByUserId ? parseInt(req.body.uploadedByUserId) : 1;
+
+      if (!file) return res.status(400).json({ message: "No file provided" });
+      if (!eventId) return res.status(400).json({ message: "eventId is required" });
+
+      const isWord = file.originalname.match(/\.docx?$/i);
+      const isPdf = file.originalname.match(/\.pdf$/i);
+      const isText = file.originalname.match(/\.(txt|md)$/i);
+
+      let rawText = "";
+      let parsingLog = "";
+      let parsingStatus: "success" | "partially_parsed" | "failed" = "success";
+      const sourceType = isWord ? "word_file" : isPdf ? "pdf_file" : "other";
+
+      if (isWord) {
+        try {
+          const result = await mammoth.extractRawText({ buffer: file.buffer });
+          rawText = result.value;
+          parsingLog = `Word document extracted successfully. ${rawText.length} characters. Warnings: ${result.messages.length}`;
+        } catch (err: any) {
+          parsingStatus = "partially_parsed";
+          parsingLog = `Word extraction failed: ${err.message}`;
+        }
+      } else if (isText) {
+        rawText = file.buffer.toString("utf-8");
+        parsingLog = `Plain text file read. ${rawText.length} characters.`;
+      } else if (isPdf) {
+        // PDF text extraction requires a heavier library — store binary for now
+        parsingStatus = "partially_parsed";
+        parsingLog = `PDF stored (${(file.size / 1024).toFixed(0)} KB). Full text extraction not yet supported — paste the text content manually using the Paste tab.`;
+      } else {
+        parsingStatus = "partially_parsed";
+        parsingLog = `Unknown file type: ${file.mimetype}. Stored metadata only.`;
+      }
+
+      const doc = await storage.createSourceDocument({
+        eventId,
+        sourceType,
+        originalFileName: file.originalname,
+        uploadedByUserId,
+        parsingStatus,
+        parsingLog,
+        rawText: rawText || null,
+        rawTextExcerpt: rawText.slice(0, 400) || `[${file.originalname} — ${(file.size / 1024).toFixed(0)} KB]`,
+      });
+
+      res.status(201).json({ ...doc, characterCount: rawText.length });
+    } catch (err: any) {
+      console.error("Upload error:", err);
+      res.status(500).json({ message: err.message ?? "Upload failed" });
+    }
   });
 
   app.patch("/api/source-documents/:id", async (req, res) => {
