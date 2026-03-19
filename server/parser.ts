@@ -65,15 +65,31 @@ interface ParsedReport {
 
 // ─── Claude extraction ────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT = `You are an expert at parsing Epic Games Store (EGS) business development trip reports.
-Given a raw trip report document, extract ALL meetings, companies, contacts, games, and platform topics.
+const SYSTEM_PROMPT = `You are an expert at parsing Epic Games Store (EGS) business development and account management trip reports.
+Given a raw trip report document, extract ALL meetings/interactions as individual records.
 
-Return ONLY a valid JSON object matching this exact schema (no markdown fences, no extra text):
+DOCUMENT TYPES — handle all of these:
+1. Formal meeting-by-meeting reports: each company has its own section.
+2. Conference recap docs: interactions appear as sessions, panels, 1-on-1 meetings, booth visits, dinners, or brief "Other Meetings" bullet entries.
+3. Mixed formats: some formal + some bullet-point summaries.
+
+EXTRACTION RULES:
+- Treat EVERY distinct company interaction as its own meeting record — even if it is a single bullet or a brief "caught up with X" note.
+- For conference recaps, each company entry under "1-on-1 Meetings", "Other Meetings", "Dinners", "Sessions", or similar headings = one meeting.
+- Do NOT merge multiple companies into one meeting record.
+- Do NOT skip any interaction, even if only a name + one sentence of context is given.
+- For sentiment: positive = interested/committed/excited/favorable, negative = rejected/blocked/concerns/pass, neutral = unclear/mixed/informational.
+- Map platform topics to canonical EGS names when possible (e.g. Revenue Share / Commercial Terms, Discovery & Featuring, Tools & SDK, Payments & Reporting, User Acquisition & Marketing, Competitive Intel).
+- For dates: infer the year from event context if only month/day is given.
+- Omit null/undefined optional fields rather than including them as null.
+- Return ONLY valid JSON — no markdown fences, no preamble, no trailing text.
+
+Return a JSON object matching this exact schema:
 
 {
   "meetings": [
     {
-      "companyName": "string — the publisher/developer company met with",
+      "companyName": "string — the publisher/developer company interacted with",
       "companyType": "publisher | developer | mixed",
       "companyRegion": "APAC | EMEA | NA | LATAM | Global (infer from context)",
       "contacts": [
@@ -81,18 +97,18 @@ Return ONLY a valid JSON object matching this exact schema (no markdown fences, 
       ],
       "meetingDate": "YYYY-MM-DD or null",
       "startTime": "HH:MM or null",
-      "location": "string or null",
+      "location": "venue/city or null",
       "format": "in_person | virtual | hybrid",
       "overallSentiment": "positive | neutral | negative",
-      "summary": "1-2 sentence summary of the meeting outcome",
-      "detailedNotes": "full notes (preserve detail)",
-      "followUpActions": "comma-separated list of follow-up actions",
+      "summary": "1-2 sentence summary of the interaction and outcome",
+      "detailedNotes": "full notes from the document for this interaction — preserve all detail",
+      "followUpActions": "comma-separated list of follow-up actions, or null",
       "games": [
         {
           "title": "game title",
           "egsStatus": "launched | announced | under_discussion | not_coming | unknown",
           "dealStatus": "initial_outreach | in_negotiation | signed | lost",
-          "discussionSummary": "what was discussed",
+          "discussionSummary": "what was discussed about this game",
           "sentiment": "positive | neutral | negative",
           "projectedLaunchTiming": "e.g. Q4 2026 or null",
           "keyQuotes": "direct quotes from the contact about this game or null"
@@ -100,7 +116,7 @@ Return ONLY a valid JSON object matching this exact schema (no markdown fences, 
       ],
       "topics": [
         {
-          "name": "platform topic name (e.g. Revenue Share / Commercial Terms, Discovery & Featuring, Tools & SDK, Payments & Reporting, User Acquisition & Marketing)",
+          "name": "platform topic name",
           "category": "commercial | product | tech | marketing | operations",
           "sentiment": "positive | neutral | negative",
           "feedbackSummary": "what was said",
@@ -110,15 +126,7 @@ Return ONLY a valid JSON object matching this exact schema (no markdown fences, 
       ]
     }
   ]
-}
-
-Rules:
-- Extract every distinct meeting block even if format is loose.
-- If the document has no clear meeting structure, treat the whole document as one meeting.
-- For sentiment: positive = excited/interested/committed, negative = rejected/blocked/concerns, neutral = unclear/mixed.
-- Map platform topics to the canonical EGS topic names when possible.
-- For dates, infer the year from context (event year) if only month/day is given.
-- Omit null/undefined optional fields rather than including them as null.`;
+}`;
 
 async function callClaude(rawText: string): Promise<ParsedReport> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -367,4 +375,100 @@ export async function parseAndIngest(
   );
 
   return result;
+}
+
+// ─── Exec Summary generation ──────────────────────────────────────────────────
+
+const EXEC_SUMMARY_PROMPT = `You are an expert analyst summarizing Epic Games Store (EGS) business development trip reports.
+Given a list of meetings extracted from a trip report, generate an executive summary.
+
+Return ONLY a valid JSON object with these exact fields (no markdown fences, no extra text):
+
+{
+  "macroThemes": "2-4 sentence narrative of the overarching themes and market signals from this event",
+  "highlights": "2-4 sentence summary of the most positive outcomes, strong leads, and wins",
+  "negatives": "2-4 sentence summary of rejections, blockers, risks, and concerns raised",
+  "recommendations": "2-4 sentence list of recommended next steps and priorities for the team",
+  "topOpportunities": ["opportunity 1", "opportunity 2", "opportunity 3"],
+  "topRisks": ["risk 1", "risk 2", "risk 3"],
+  "topActions": [
+    { "action": "specific action", "owner": "team or person", "dueDate": "optional date or null" }
+  ]
+}
+
+Rules:
+- Base everything strictly on the meeting data provided.
+- topOpportunities and topRisks should be arrays of 2-4 concise strings each.
+- topActions should be 2-5 specific, actionable items.
+- Omit dueDate from action items if not clearly mentioned in the data.`;
+
+export async function generateExecSummary(
+  eventId: number,
+  eventName: string
+): Promise<void> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    log(`[parser] skipping exec summary — no ANTHROPIC_API_KEY`, "parser");
+    return;
+  }
+
+  try {
+    // Gather all meetings with details for this event
+    const allMeetings = await storage.getMeetingsByEvent(eventId);
+    if (allMeetings.length === 0) {
+      log(`[parser] skipping exec summary for event=${eventId} — no meetings`, "parser");
+      return;
+    }
+
+    // Serialize meeting data for Claude
+    const meetingsSummary = allMeetings.map(m => {
+      const parts: string[] = [];
+      parts.push(`Company: ${(m as any).company?.name ?? "Unknown"}`);
+      parts.push(`Sentiment: ${m.overallSentiment}`);
+      if (m.summary) parts.push(`Summary: ${m.summary}`);
+      if (m.detailedNotes) parts.push(`Notes: ${m.detailedNotes.slice(0, 800)}`);
+      if (m.followUpActions) parts.push(`Follow-ups: ${m.followUpActions}`);
+      return parts.join(" | ");
+    }).join("\n---\n");
+
+    const client = new Anthropic({ apiKey });
+    const message = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4096,
+      system: EXEC_SUMMARY_PROMPT,
+      messages: [
+        {
+          role: "user",
+          content: `Generate an executive summary for the event "${eventName}" based on these ${allMeetings.length} meetings:\n\n${meetingsSummary}`,
+        },
+      ],
+    });
+
+    const text = message.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { type: "text"; text: string }).text)
+      .join("");
+
+    const cleaned = text.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    const jsonStr = jsonMatch ? jsonMatch[0] : cleaned;
+
+    const parsed = JSON.parse(jsonStr);
+
+    await storage.upsertExecSummary({
+      eventId,
+      macroThemes: parsed.macroThemes ?? null,
+      highlights: parsed.highlights ?? null,
+      negatives: parsed.negatives ?? null,
+      recommendations: parsed.recommendations ?? null,
+      topOpportunities: parsed.topOpportunities ?? null,
+      topRisks: parsed.topRisks ?? null,
+      topActions: parsed.topActions ?? null,
+      generatedByUserId: null,
+    });
+
+    log(`[parser] exec summary generated for event=${eventId}`, "parser");
+  } catch (err: any) {
+    log(`[parser] exec summary generation failed for event=${eventId}: ${err.message}`, "parser");
+  }
 }

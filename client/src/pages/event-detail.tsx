@@ -34,6 +34,9 @@ function ExecSummaryPanel({ eventId }: { eventId: number }) {
       if (!r.ok) return null;
       return r.json();
     },
+    // Poll until exec summary appears after parsing
+    refetchInterval: 7000,
+    refetchIntervalInBackground: false,
   });
 
   if (!summary) {
@@ -155,6 +158,9 @@ export default function EventDetailPage() {
       const r = await fetch(`/api/events/${eventId}`);
       return r.json();
     },
+    // Refetch stats and exec summary availability while parsing is in progress
+    refetchInterval: 6000,
+    refetchIntervalInBackground: false,
   });
 
   const { data: meetings, isLoading: meetingsLoading } = useQuery<MeetingWithDetails[]>({

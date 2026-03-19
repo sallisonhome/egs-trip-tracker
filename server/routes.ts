@@ -4,7 +4,7 @@ import multer from "multer";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import { storage } from "./storage";
-import { parseAndIngest } from "./parser";
+import { parseAndIngest, generateExecSummary } from "./parser";
 import { log } from "./log";
 import {
   insertEventSchema, insertMeetingSchema, insertCompanySchema,
@@ -260,6 +260,10 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
             parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
             parsingLog: summary,
           });
+          if (result.meetingsCreated > 0) {
+            const evt = await storage.getEventById(doc.eventId);
+            if (evt) await generateExecSummary(doc.eventId, evt.name);
+          }
         } catch (err: any) {
           await storage.updateSourceDocument(doc.id, {
             parsingStatus: "failed",
@@ -321,6 +325,10 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
             parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
             parsingLog: summary,
           });
+          if (result.meetingsCreated > 0) {
+            const evt = await storage.getEventById(eid);
+            if (evt) await generateExecSummary(eid, evt.name);
+          }
         } catch (err: any) {
           await storage.updateSourceDocument(doc.id, {
             parsingStatus: "failed",
@@ -410,6 +418,10 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
               parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
               parsingLog: summary,
             });
+            if (result.meetingsCreated > 0) {
+              const evt = await storage.getEventById(eventId);
+              if (evt) await generateExecSummary(eventId, evt.name);
+            }
           } catch (err: any) {
             await storage.updateSourceDocument(doc.id, {
               parsingStatus: "failed",
@@ -457,11 +469,15 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
           `Games: ${result.gamesCreated}`,
           `Topics: ${result.topicsCreated}`,
           ...(result.errors.length ? [`Errors: ${result.errors.join("; ")}`] : []),
-        ].join(" · ");
+        ].join(" \u00b7 ");
         await storage.updateSourceDocument(id, {
           parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
           parsingLog: summary,
         });
+        if (result.meetingsCreated > 0) {
+          const evt = await storage.getEventById(doc.eventId);
+          if (evt) await generateExecSummary(doc.eventId, evt.name);
+        }
       } catch (err: any) {
         log(`[parse] error doc=${id}: ${err.message}`, "parser");
         await storage.updateSourceDocument(id, {
