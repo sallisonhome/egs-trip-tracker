@@ -1,6 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from "@/components/ui/dialog";
@@ -11,24 +10,28 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { FileText, Link2, Upload, AlignLeft, X, CheckCircle2 } from "lucide-react";
+import { FileText, Link2, Upload, AlignLeft, CheckCircle2, Loader2 } from "lucide-react";
 import type { EventWithStats } from "@shared/schema";
+
+const API_BASE = (import.meta.env.VITE_API_BASE as string) ?? "";
 
 interface IngestModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  // If provided, locks the modal to this event. If null, shows an event selector.
   eventId?: number | null;
   eventName?: string;
 }
 
+// ── Shared helpers ────────────────────────────────────────────────────────────
+
+function charLabel(n: number) {
+  return n > 0 ? `${n.toLocaleString()} characters extracted` : null;
+}
+
+// ── File drop zone component ───────────────────────────────────────────────────
+
 function FileDropZone({
-  accept,
-  label,
-  icon: Icon,
-  onFile,
-  file,
-  loading,
+  accept, label, icon: Icon, onFile, file, loading,
 }: {
   accept: string;
   label: string;
@@ -52,7 +55,7 @@ function FileDropZone({
       className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors
         ${dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/40"}
         ${file ? "border-emerald-500/50 bg-emerald-500/5" : ""}`}
-      onClick={() => inputRef.current?.click()}
+      onClick={() => !loading && inputRef.current?.click()}
       onDragOver={e => { e.preventDefault(); setDragging(true); }}
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}
@@ -81,22 +84,24 @@ function FileDropZone({
   );
 }
 
+// ── Main modal ────────────────────────────────────────────────────────────────
+
 export function IngestModal({ open, onOpenChange, eventId: lockedEventId, eventName }: IngestModalProps) {
   const qc = useQueryClient();
   const { toast } = useToast();
 
-  // Event selector (when not locked to a specific event)
   const { data: events } = useQuery<EventWithStats[]>({ queryKey: ["/api/events"] });
   const [selectedEventId, setSelectedEventId] = useState<string>("");
   const resolvedEventId = lockedEventId ?? (selectedEventId ? parseInt(selectedEventId) : null);
   const resolvedEventName = eventName ?? events?.find(e => e.id === resolvedEventId)?.name ?? "";
 
-  // Tab state
   const [pastedText, setPastedText] = useState("");
   const [googleDocUrl, setGoogleDocUrl] = useState("");
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [wordFile, setWordFile] = useState<File | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const noEvent = !resolvedEventId;
 
   const reset = () => {
     setPastedText("");
@@ -104,109 +109,104 @@ export function IngestModal({ open, onOpenChange, eventId: lockedEventId, eventN
     setPdfFile(null);
     setWordFile(null);
     setSelectedEventId("");
-    setIsProcessing(false);
+    setLoading(false);
   };
 
-  const ingest = useMutation({
-    mutationFn: async (payload: {
-      sourceType: string;
-      rawText?: string;
-      externalUrl?: string;
-      originalFileName?: string;
-      rawTextExcerpt?: string;
-    }) => {
-      if (!resolvedEventId) throw new Error("No event selected");
-      return apiRequest("POST", "/api/source-documents", {
-        eventId: resolvedEventId,
-        ...payload,
-        uploadedByUserId: 1,
-        parsingStatus: "success",
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["/api/events"] });
+    if (resolvedEventId) {
+      qc.invalidateQueries({ queryKey: [`/api/events/${resolvedEventId}/source-documents`] });
+    }
+  };
+
+  const handleSuccess = (fileName: string, charCount: number) => {
+    invalidate();
+    const info = charCount > 0
+      ? ` ${charCount.toLocaleString()} characters saved.`
+      : " Saved with metadata.";
+    toast({ title: "Report saved", description: `${fileName} added to ${resolvedEventName}.${info}` });
+    onOpenChange(false);
+    reset();
+  };
+
+  const handleError = (msg: string) => {
+    toast({ title: "Upload failed", description: msg, variant: "destructive" });
+    setLoading(false);
+  };
+
+  // ── Paste ──────────────────────────────────────────────────────────────────
+
+  const handlePasteSubmit = async () => {
+    if (!pastedText.trim() || noEvent) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/source-documents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: resolvedEventId,
+          sourceType: "pasted_text",
+          rawText: pastedText,
+          rawTextExcerpt: pastedText.slice(0, 400),
+          uploadedByUserId: 1,
+          parsingStatus: "success",
+        }),
       });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["/api/events"] });
-      if (resolvedEventId) {
-        qc.invalidateQueries({ queryKey: [`/api/events/${resolvedEventId}/source-documents`] });
-      }
-      toast({ title: "Report ingested", description: `Added to ${resolvedEventName}.` });
-      onOpenChange(false);
-      reset();
-    },
-    onError: (err: any) => {
-      toast({
-        title: "Ingest failed",
-        description: err?.message ?? "Please try again.",
-        variant: "destructive",
+      if (!res.ok) throw new Error((await res.json()).message ?? res.statusText);
+      handleSuccess("Pasted text", pastedText.length);
+    } catch (err: any) {
+      handleError(err.message ?? "Please try again.");
+    }
+  };
+
+  // ── Google Doc ─────────────────────────────────────────────────────────────
+
+  const handleGoogleDocSubmit = async () => {
+    if (!googleDocUrl.trim() || noEvent) return;
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/fetch-google-doc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: googleDocUrl,
+          eventId: resolvedEventId,
+          uploadedByUserId: 1,
+        }),
       });
-      setIsProcessing(false);
-    },
-  });
-
-  const handlePasteSubmit = () => {
-    if (!pastedText.trim() || !resolvedEventId) return;
-    ingest.mutate({
-      sourceType: "pasted_text",
-      rawText: pastedText,
-      rawTextExcerpt: pastedText.slice(0, 400),
-    });
+      if (!res.ok) throw new Error((await res.json()).message ?? res.statusText);
+      const doc = await res.json();
+      handleSuccess("Google Doc", doc.characterCount ?? 0);
+    } catch (err: any) {
+      handleError(err.message ?? "Could not fetch document.");
+    }
   };
 
-  const handleGoogleDocSubmit = () => {
-    if (!googleDocUrl.trim() || !resolvedEventId) return;
-    ingest.mutate({
-      sourceType: "google_doc",
-      externalUrl: googleDocUrl,
-      rawTextExcerpt: `Google Doc: ${googleDocUrl}`,
-    });
-  };
+  // ── File upload (PDF / Word) ───────────────────────────────────────────────
 
   const handleFileSubmit = async (file: File, sourceType: "pdf_file" | "word_file") => {
-    if (!file || !resolvedEventId) return;
-    setIsProcessing(true);
+    if (!file || noEvent) return;
+    setLoading(true);
     try {
       const formData = new FormData();
       formData.append("file", file);
       formData.append("eventId", String(resolvedEventId));
       formData.append("uploadedByUserId", "1");
 
-      const res = await fetch(`${import.meta.env.VITE_API_BASE ?? ""}/api/upload-document`, {
+      const res = await fetch(`${API_BASE}/api/upload-document`, {
         method: "POST",
         body: formData,
       });
-
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: res.statusText }));
-        throw new Error(err.message ?? "Upload failed");
-      }
-
+      if (!res.ok) throw new Error((await res.json()).message ?? res.statusText);
       const doc = await res.json();
-      qc.invalidateQueries({ queryKey: ["/api/events"] });
-      if (resolvedEventId) {
-        qc.invalidateQueries({ queryKey: [`/api/events/${resolvedEventId}/source-documents`] });
-      }
-
-      const charInfo = doc.characterCount > 0
-        ? ` Extracted ${doc.characterCount.toLocaleString()} characters.`
-        : " File stored — no text extracted.";
-
-      toast({
-        title: "Report uploaded",
-        description: `${file.name} added to ${resolvedEventName}.${charInfo}`,
-      });
-      onOpenChange(false);
-      reset();
+      handleSuccess(file.name, doc.characterCount ?? 0);
     } catch (err: any) {
-      toast({ title: "Upload failed", description: err.message ?? "Please try again.", variant: "destructive" });
-    } finally {
-      setIsProcessing(false);
+      handleError(err.message ?? "Please try again.");
     }
   };
 
-  const isLoading = ingest.isPending || isProcessing;
-  const noEvent = !resolvedEventId;
-
   return (
-    <Dialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) reset(); }}>
+    <Dialog open={open} onOpenChange={v => { onOpenChange(v); if (!v) reset(); }}>
       <DialogContent className="max-w-xl" data-testid="modal-ingest">
         <DialogHeader>
           <DialogTitle>Upload Trip Report</DialogTitle>
@@ -217,7 +217,7 @@ export function IngestModal({ open, onOpenChange, eventId: lockedEventId, eventN
           </DialogDescription>
         </DialogHeader>
 
-        {/* Event selector — shown when not locked to a specific event */}
+        {/* Event selector */}
         {!lockedEventId && (
           <div className="space-y-1.5">
             <Label>Event</Label>
@@ -236,63 +236,51 @@ export function IngestModal({ open, onOpenChange, eventId: lockedEventId, eventN
 
         <Tabs defaultValue="paste" className="mt-1">
           <TabsList className="w-full grid grid-cols-4">
-            <TabsTrigger value="paste" data-testid="tab-paste">
-              <AlignLeft className="w-3.5 h-3.5 mr-1" />Paste
-            </TabsTrigger>
-            <TabsTrigger value="google" data-testid="tab-google">
-              <Link2 className="w-3.5 h-3.5 mr-1" />Google Doc
-            </TabsTrigger>
-            <TabsTrigger value="pdf" data-testid="tab-pdf">
-              <FileText className="w-3.5 h-3.5 mr-1" />PDF
-            </TabsTrigger>
-            <TabsTrigger value="word" data-testid="tab-word">
-              <Upload className="w-3.5 h-3.5 mr-1" />Word
-            </TabsTrigger>
+            <TabsTrigger value="paste"><AlignLeft className="w-3.5 h-3.5 mr-1" />Paste</TabsTrigger>
+            <TabsTrigger value="google"><Link2 className="w-3.5 h-3.5 mr-1" />Google Doc</TabsTrigger>
+            <TabsTrigger value="pdf"><FileText className="w-3.5 h-3.5 mr-1" />PDF</TabsTrigger>
+            <TabsTrigger value="word"><Upload className="w-3.5 h-3.5 mr-1" />Word</TabsTrigger>
           </TabsList>
 
           {/* ── Paste ── */}
           <TabsContent value="paste" className="space-y-3 mt-3">
             <Textarea
-              id="paste-text"
-              data-testid="input-paste-text"
               placeholder="Paste your trip report, meeting notes, or email thread here..."
               className="min-h-[180px] font-mono text-sm"
               value={pastedText}
               onChange={e => setPastedText(e.target.value)}
+              disabled={loading}
             />
-            <p className="text-xs text-muted-foreground">
-              Supports any free-form text — the system logs it as a source document for this event.
-            </p>
+            {pastedText.length > 0 && (
+              <p className="text-xs text-muted-foreground">{charLabel(pastedText.length)}</p>
+            )}
             <Button
               onClick={handlePasteSubmit}
-              disabled={!pastedText.trim() || isLoading || noEvent}
-              data-testid="button-submit-paste"
+              disabled={!pastedText.trim() || loading || noEvent}
               className="w-full"
             >
-              {isLoading ? "Saving..." : "Save Pasted Report"}
+              {loading ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Saving...</> : "Save Pasted Report"}
             </Button>
           </TabsContent>
 
           {/* ── Google Doc ── */}
           <TabsContent value="google" className="space-y-3 mt-3">
-            <Label htmlFor="google-url">Google Docs URL</Label>
+            <Label>Google Docs URL</Label>
             <Input
-              id="google-url"
-              data-testid="input-google-url"
               placeholder="https://docs.google.com/document/d/..."
               value={googleDocUrl}
               onChange={e => setGoogleDocUrl(e.target.value)}
+              disabled={loading}
             />
             <p className="text-xs text-muted-foreground">
-              Make sure the document is shared as <strong>Anyone with the link can view</strong>.
+              The document must be shared as <strong>Anyone with the link can view</strong>. The full text will be fetched and saved.
             </p>
             <Button
               onClick={handleGoogleDocSubmit}
-              disabled={!googleDocUrl.trim() || isLoading || noEvent}
-              data-testid="button-submit-google"
+              disabled={!googleDocUrl.trim() || loading || noEvent}
               className="w-full"
             >
-              {isLoading ? "Saving..." : "Link Google Doc"}
+              {loading ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Fetching doc...</> : "Fetch & Save Google Doc"}
             </Button>
           </TabsContent>
 
@@ -304,18 +292,17 @@ export function IngestModal({ open, onOpenChange, eventId: lockedEventId, eventN
               icon={FileText}
               onFile={setPdfFile}
               file={pdfFile}
-              loading={isLoading}
+              loading={loading}
             />
             <p className="text-xs text-muted-foreground">
-              Supported: .pdf, .txt, .md — file metadata and readable text are stored.
+              Supported: .pdf, .txt, .md — text is extracted and fully saved to the database.
             </p>
             <Button
               onClick={() => pdfFile && handleFileSubmit(pdfFile, "pdf_file")}
-              disabled={!pdfFile || isLoading || noEvent}
-              data-testid="button-submit-pdf"
+              disabled={!pdfFile || loading || noEvent}
               className="w-full"
             >
-              {isLoading ? "Uploading..." : "Upload PDF"}
+              {loading ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Extracting text...</> : "Upload & Extract PDF"}
             </Button>
           </TabsContent>
 
@@ -327,18 +314,17 @@ export function IngestModal({ open, onOpenChange, eventId: lockedEventId, eventN
               icon={Upload}
               onFile={setWordFile}
               file={wordFile}
-              loading={isLoading}
+              loading={loading}
             />
             <p className="text-xs text-muted-foreground">
-              Supported: .docx, .doc, .txt, .md — file metadata and readable text are stored.
+              Supported: .docx, .doc, .txt, .md — full text is extracted and saved to the database.
             </p>
             <Button
               onClick={() => wordFile && handleFileSubmit(wordFile, "word_file")}
-              disabled={!wordFile || isLoading || noEvent}
-              data-testid="button-submit-word"
+              disabled={!wordFile || loading || noEvent}
               className="w-full"
             >
-              {isLoading ? "Uploading..." : "Upload Word Doc"}
+              {loading ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />Extracting text...</> : "Upload & Extract Word Doc"}
             </Button>
           </TabsContent>
         </Tabs>

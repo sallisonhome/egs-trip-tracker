@@ -2,6 +2,7 @@ import type { Express } from "express";
 import type { Server } from "http";
 import multer from "multer";
 import mammoth from "mammoth";
+import pdfParse from "pdf-parse";
 import { storage } from "./storage";
 import {
   insertEventSchema, insertMeetingSchema, insertCompanySchema,
@@ -240,6 +241,45 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
     res.status(201).json(updated);
   });
 
+  // ── Google Doc fetch endpoint ──
+  app.post("/api/fetch-google-doc", async (req, res) => {
+    try {
+      const { url, eventId, uploadedByUserId = 1 } = req.body;
+      if (!url || !eventId) return res.status(400).json({ message: "url and eventId are required" });
+
+      // Convert any Google Docs URL to plain text export URL
+      const docIdMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (!docIdMatch) return res.status(400).json({ message: "Could not extract Google Doc ID from URL" });
+      const docId = docIdMatch[1];
+      const exportUrl = `https://docs.google.com/document/d/${docId}/export?format=txt`;
+
+      const response = await fetch(exportUrl);
+      if (!response.ok) {
+        if (response.status === 403 || response.status === 401) {
+          return res.status(400).json({ message: "Document is not publicly shared. Set sharing to 'Anyone with the link can view' and try again." });
+        }
+        return res.status(400).json({ message: `Failed to fetch document: ${response.statusText}` });
+      }
+
+      const rawText = await response.text();
+      const doc = await storage.createSourceDocument({
+        eventId: parseInt(eventId),
+        sourceType: "google_doc",
+        externalUrl: url,
+        uploadedByUserId: parseInt(uploadedByUserId),
+        parsingStatus: "success",
+        parsingLog: `Google Doc fetched successfully. ${rawText.length} characters extracted.`,
+        rawText,
+        rawTextExcerpt: rawText.slice(0, 400),
+      });
+
+      res.status(201).json({ ...doc, characterCount: rawText.length });
+    } catch (err: any) {
+      console.error("Google Doc fetch error:", err);
+      res.status(500).json({ message: err.message ?? "Failed to fetch Google Doc" });
+    }
+  });
+
   // ── File upload endpoint (Word / PDF / text) ──
   app.post("/api/upload-document", upload.single("file"), async (req, res) => {
     try {
@@ -272,9 +312,14 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
         rawText = file.buffer.toString("utf-8");
         parsingLog = `Plain text file read. ${rawText.length} characters.`;
       } else if (isPdf) {
-        // PDF text extraction requires a heavier library — store binary for now
-        parsingStatus = "partially_parsed";
-        parsingLog = `PDF stored (${(file.size / 1024).toFixed(0)} KB). Full text extraction not yet supported — paste the text content manually using the Paste tab.`;
+        try {
+          const result = await pdfParse(file.buffer);
+          rawText = result.text;
+          parsingLog = `PDF extracted successfully. ${rawText.length} characters across ${result.numpages} page(s).`;
+        } catch (err: any) {
+          parsingStatus = "partially_parsed";
+          parsingLog = `PDF extraction failed: ${err.message}. Try pasting the text manually.`;
+        }
       } else {
         parsingStatus = "partially_parsed";
         parsingLog = `Unknown file type: ${file.mimetype}. Stored metadata only.`;

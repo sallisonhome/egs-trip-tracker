@@ -180,11 +180,11 @@ export default function EventDetailPage() {
     <div className="p-6 max-w-6xl mx-auto">
       {/* Back + header */}
       <div className="flex items-center gap-2 mb-4">
-        <Link href="/events">
+        <a href="#/events">
           <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" data-testid="button-back">
             <ArrowLeft className="w-3.5 h-3.5" />Back
           </Button>
-        </Link>
+        </a>
       </div>
 
       <div className="flex items-start justify-between gap-4 mb-6">
@@ -263,7 +263,7 @@ export default function EventDetailPage() {
               )}
               <div className="divide-y">
                 {meetings?.map(meeting => (
-                  <Link key={meeting.id} href={`/meetings/${meeting.id}`}>
+                  <a key={meeting.id} href={`#/meetings/${meeting.id}`}>
                     <div
                       className="flex items-start gap-3 px-4 py-3 hover:bg-muted/40 transition-colors cursor-pointer"
                       data-testid={`meeting-row-${meeting.id}`}
@@ -302,7 +302,7 @@ export default function EventDetailPage() {
                       </div>
                       <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-1" />
                     </div>
-                  </Link>
+                  </a>
                 ))}
               </div>
             </CardContent>

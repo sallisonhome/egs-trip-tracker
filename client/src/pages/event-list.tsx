@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link } from "wouter";
+
 import type { EventWithStats } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { Card, CardContent } from "@/components/ui/card";
@@ -130,7 +130,7 @@ export default function EventListPage() {
 
       <div className="space-y-3" data-testid="event-list">
         {filtered.map(event => (
-          <Link key={event.id} href={`/events/${event.id}`}>
+          <a key={event.id} href={`#/events/${event.id}`}>
             <Card className="hover-elevate cursor-pointer transition-all" data-testid={`event-card-${event.id}`}>
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-4">
@@ -188,7 +188,7 @@ export default function EventListPage() {
                 </div>
               </CardContent>
             </Card>
-          </Link>
+          </a>
         ))}
       </div>
 

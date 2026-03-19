@@ -65,11 +65,11 @@ export default function MeetingDetailPage() {
     <div className="p-6 max-w-5xl mx-auto">
       {/* Back */}
       <div className="flex items-center gap-2 mb-4">
-        <Link href={`/events/${meeting.eventId}`}>
+        <a href={`#/events/${meeting.eventId}`}>
           <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" data-testid="button-back">
             <ArrowLeft className="w-3.5 h-3.5" />Back to Event
           </Button>
-        </Link>
+        </a>
       </div>
 
       {/* Header */}

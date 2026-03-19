@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { Link } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import {
   Sidebar, SidebarContent, SidebarGroup, SidebarGroupLabel,
@@ -45,10 +44,10 @@ export function AppSidebar() {
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton asChild data-active={isActive}>
-                      <Link href={item.url}>
+                      <a href={`#${item.url}`}>
                         <item.icon className="w-4 h-4" />
                         <span>{item.title}</span>
-                      </Link>
+                      </a>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 );
