@@ -136,11 +136,13 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
                   </p>
                 )}
                 {(canReparse || isReparsing) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 px-2 text-xs mt-1 text-muted-foreground hover:text-foreground gap-1"
-                    onClick={() => parseMutation.mutate(doc.id)}
+                  <button
+                    className="inline-flex items-center gap-1 h-6 px-2 text-xs mt-1 text-muted-foreground hover:text-foreground rounded cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      parseMutation.mutate(doc.id);
+                    }}
                     disabled={isReparsing}
                     data-testid={`button-reparse-${doc.id}`}
                   >
@@ -149,7 +151,7 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
                       : <RefreshCw className="w-3 h-3" />
                     }
                     {isReparsing ? "Extracting…" : "Re-extract"}
-                  </Button>
+                  </button>
                 )}
               </div>
             </div>
