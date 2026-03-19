@@ -125,13 +125,18 @@ async function callClaude(rawText: string): Promise<ParsedReport> {
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY environment variable is not set");
   const client = new Anthropic({ apiKey });
 
+  // Truncate rawText to ~8000 chars to avoid hitting token limits on very long docs
+  const truncated = rawText.length > 8000
+    ? rawText.slice(0, 8000) + "\n\n[Document truncated for length — extract what you can from the above]"
+    : rawText;
+
   const message = await client.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 4096,
+    max_tokens: 8192,
     messages: [
       {
         role: "user",
-        content: `Parse the following EGS trip report and extract all structured data:\n\n---\n${rawText}\n---`,
+        content: `Parse the following EGS trip report and extract all structured data:\n\n---\n${truncated}\n---`,
       },
     ],
     system: SYSTEM_PROMPT,
@@ -145,8 +150,12 @@ async function callClaude(rawText: string): Promise<ParsedReport> {
   // Strip any accidental markdown fences
   const cleaned = text.replace(/^```(?:json)?\n?/i, "").replace(/\n?```$/i, "").trim();
 
+  // Extract just the JSON object in case Claude added extra text
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  const jsonStr = jsonMatch ? jsonMatch[0] : cleaned;
+
   try {
-    return JSON.parse(cleaned) as ParsedReport;
+    return JSON.parse(jsonStr) as ParsedReport;
   } catch {
     throw new Error(`Claude returned invalid JSON: ${cleaned.slice(0, 200)}`);
   }
