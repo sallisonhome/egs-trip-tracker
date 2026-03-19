@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { IngestModal } from "@/components/ingest-modal";
 import {
   Plus, Search, MapPin, Calendar, Users, FileText,
-  ChevronRight, Building2, Globe, UploadCloud
+  ChevronRight, Building2, Globe, UploadCloud, Trash2,
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -39,6 +39,8 @@ export default function EventListPage() {
   const { toast } = useToast();
   const [form, setForm] = useState({ name: "", eventType: "conference", city: "", country: "", startDate: "", endDate: "" });
 
+  const [deletingEventId, setDeletingEventId] = useState<number | null>(null);
+
   const createEvent = useMutation({
     mutationFn: (data: typeof form) => apiRequest("POST", "/api/events", data),
     onSuccess: () => {
@@ -46,6 +48,19 @@ export default function EventListPage() {
       toast({ title: "Event created" });
       setNewEventOpen(false);
       setForm({ name: "", eventType: "conference", city: "", country: "", startDate: "", endDate: "" });
+    },
+  });
+
+  const deleteEvent = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/events/${id}`),
+    onSuccess: () => {
+      setDeletingEventId(null);
+      qc.invalidateQueries({ queryKey: ["/api/events"] });
+      toast({ title: "Event deleted" });
+    },
+    onError: (err: any) => {
+      setDeletingEventId(null);
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
     },
   });
 
@@ -130,65 +145,102 @@ export default function EventListPage() {
 
       <div className="space-y-3" data-testid="event-list">
         {filtered.map(event => (
-          <a key={event.id} href={`#/events/${event.id}`}>
-            <Card className="hover-elevate cursor-pointer transition-all" data-testid={`event-card-${event.id}`}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-sm">{event.name}</span>
-                      <Badge variant="outline" className="text-xs capitalize shrink-0">
-                        {eventTypeLabels[event.eventType] ?? event.eventType}
-                      </Badge>
-                      {event.hasExecutiveSummary && (
-                        <Badge className="text-xs bg-primary/10 text-primary border-primary/20 hover:bg-primary/10">
-                          Exec Summary
+          <div key={event.id} className="relative group">
+            <a href={`#/events/${event.id}`}>
+              <Card className="hover-elevate cursor-pointer transition-all" data-testid={`event-card-${event.id}`}>
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm">{event.name}</span>
+                        <Badge variant="outline" className="text-xs capitalize shrink-0">
+                          {eventTypeLabels[event.eventType] ?? event.eventType}
                         </Badge>
-                      )}
+                        {event.hasExecutiveSummary && (
+                          <Badge className="text-xs bg-primary/10 text-primary border-primary/20 hover:bg-primary/10">
+                            Exec Summary
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                        {(event.city || event.country) && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <MapPin className="w-3 h-3" />
+                            {[event.city, event.country].filter(Boolean).join(", ")}
+                          </span>
+                        )}
+                        {event.startDate && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Calendar className="w-3 h-3" />
+                            {format(new Date(event.startDate + "T12:00:00"), "MMM d")}
+                            {event.endDate && event.endDate !== event.startDate &&
+                              ` – ${format(new Date(event.endDate + "T12:00:00"), "MMM d, yyyy")}`
+                            }
+                            {(!event.endDate || event.endDate === event.startDate) &&
+                              format(new Date(event.startDate + "T12:00:00"), ", yyyy")
+                            }
+                          </span>
+                        )}
+                        {event.primaryOwner && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <Users className="w-3 h-3" />
+                            {event.primaryOwner.name}
+                          </span>
+                        )}
+                        {event.sourceDocumentCount > 0 && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <FileText className="w-3 h-3" />
+                            {event.sourceDocumentCount} doc{event.sourceDocumentCount !== 1 ? "s" : ""}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                      {(event.city || event.country) && (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <MapPin className="w-3 h-3" />
-                          {[event.city, event.country].filter(Boolean).join(", ")}
-                        </span>
+                    <div className="flex flex-col items-end gap-2 shrink-0">
+                      {event.meetingCount > 0 && (
+                        <SentimentBar pos={event.positiveCount} neu={event.neutralCount} neg={event.negativeCount} />
                       )}
-                      {event.startDate && (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Calendar className="w-3 h-3" />
-                          {format(new Date(event.startDate + "T12:00:00"), "MMM d")}
-                          {event.endDate && event.endDate !== event.startDate &&
-                            ` – ${format(new Date(event.endDate + "T12:00:00"), "MMM d, yyyy")}`
-                          }
-                          {(!event.endDate || event.endDate === event.startDate) &&
-                            format(new Date(event.startDate + "T12:00:00"), ", yyyy")
-                          }
-                        </span>
-                      )}
-                      {event.primaryOwner && (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Users className="w-3 h-3" />
-                          {event.primaryOwner.name}
-                        </span>
-                      )}
-                      {event.sourceDocumentCount > 0 && (
-                        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <FileText className="w-3 h-3" />
-                          {event.sourceDocumentCount} doc{event.sourceDocumentCount !== 1 ? "s" : ""}
-                        </span>
-                      )}
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-2 shrink-0">
-                    {event.meetingCount > 0 && (
-                      <SentimentBar pos={event.positiveCount} neu={event.neutralCount} neg={event.negativeCount} />
-                    )}
-                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </a>
+                </CardContent>
+              </Card>
+            </a>
+            {/* Delete button — outside the <a> so it doesn't navigate */}
+            <div
+              className="absolute top-3 right-10 opacity-0 group-hover:opacity-100 transition-opacity"
+              onClick={e => e.stopPropagation()}
+            >
+              {deletingEventId === event.id ? (
+                <span className="inline-flex items-center gap-1.5 bg-background border rounded px-2 py-1 text-xs shadow-sm">
+                  <span className="text-red-600 dark:text-red-400 font-medium">Delete event?</span>
+                  <button
+                    className="text-red-600 hover:text-red-700 font-semibold cursor-pointer"
+                    onClick={() => deleteEvent.mutate(event.id)}
+                    disabled={deleteEvent.isPending}
+                    data-testid={`button-confirm-delete-event-${event.id}`}
+                  >
+                    {deleteEvent.isPending ? "Deleting…" : "Yes"}
+                  </button>
+                  <button
+                    className="text-muted-foreground hover:text-foreground cursor-pointer"
+                    onClick={() => setDeletingEventId(null)}
+                    data-testid={`button-cancel-delete-event-${event.id}`}
+                  >
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  className="p-1.5 rounded text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
+                  onClick={() => setDeletingEventId(event.id)}
+                  data-testid={`button-delete-event-${event.id}`}
+                  title="Delete event"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
         ))}
       </div>
 

@@ -390,6 +390,10 @@ export class DatabaseStorage implements IStorage {
 
   // ── ParsedSections ─────────────────────────────────────────────────────────
 
+  async deleteSourceDocument(id: number): Promise<void> {
+    await db.delete(sourceDocuments).where(eq(sourceDocuments.id, id));
+  }
+
   async getParsedSectionsByDocument(sourceDocumentId: number): Promise<ParsedSection[]> {
     return db.select().from(parsedSections).where(eq(parsedSections.sourceDocumentId, sourceDocumentId));
   }

@@ -93,6 +93,7 @@ export interface IStorage {
   getSourceDocumentById(id: number): Promise<SourceDocument | undefined>;
   createSourceDocument(data: InsertSourceDocument): Promise<SourceDocument>;
   updateSourceDocument(id: number, data: Partial<InsertSourceDocument>): Promise<SourceDocument>;
+  deleteSourceDocument(id: number): Promise<void>;
 
   // ParsedSections
   getParsedSectionsByDocument(sourceDocumentId: number): Promise<ParsedSection[]>;
@@ -547,6 +548,8 @@ export class MemStorage implements IStorage {
   }
 
   // ── ParsedSections ──
+  async deleteSourceDocument(id: number): Promise<void> { this.sourceDocuments.delete(id); }
+
   async getParsedSectionsByDocument(sourceDocumentId: number): Promise<ParsedSection[]> {
     return [...this.parsedSections.values()].filter(ps => ps.sourceDocumentId === sourceDocumentId);
   }

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import {
   FileText, Link2, Upload, AlignLeft,
   Clock, CheckCircle2, XCircle, AlertCircle,
-  RefreshCw, Loader2, UploadCloud,
+  RefreshCw, Loader2, UploadCloud, Trash2,
 } from "lucide-react";
 import { format } from "date-fns";
 import { apiRequest } from "@/lib/queryClient";
@@ -53,6 +53,25 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
 
   // Track which doc IDs are currently being re-extracted
   const [reparsingIds, setReparsingIds] = useState<number[]>([]);
+  // Track which doc ID is pending delete confirmation
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: async (docId: number) => {
+      const res = await fetch(`/api/source-documents/${docId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+    },
+    onSuccess: (_data, docId) => {
+      setDeletingId(null);
+      qc.invalidateQueries({ queryKey: ["/api/events", eventId, "source-documents"] });
+      qc.invalidateQueries({ queryKey: ["/api/events", eventId] });
+      toast({ title: "Document removed" });
+    },
+    onError: (err: any) => {
+      setDeletingId(null);
+      toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   const parseMutation = useMutation({
     mutationFn: async (docId: number) => {
@@ -169,6 +188,36 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
                   >
                     <UploadCloud className="w-3 h-3" />
                     Re-upload file
+                  </button>
+                )}
+                {/* Delete confirmation inline */}
+                {deletingId === doc.id ? (
+                  <span className="inline-flex items-center gap-1.5 mt-1 text-xs">
+                    <span className="text-red-600 dark:text-red-400 font-medium">Remove this document?</span>
+                    <button
+                      className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-semibold cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); deleteMutation.mutate(doc.id); }}
+                      disabled={deleteMutation.isPending}
+                      data-testid={`button-confirm-delete-${doc.id}`}
+                    >
+                      {deleteMutation.isPending ? "Removing…" : "Yes, remove"}
+                    </button>
+                    <button
+                      className="text-muted-foreground hover:text-foreground cursor-pointer"
+                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); setDeletingId(null); }}
+                      data-testid={`button-cancel-delete-${doc.id}`}
+                    >
+                      Cancel
+                    </button>
+                  </span>
+                ) : (
+                  <button
+                    className="inline-flex items-center gap-1 h-6 px-2 text-xs mt-1 text-muted-foreground hover:text-red-500 dark:hover:text-red-400 rounded cursor-pointer"
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); setDeletingId(doc.id); }}
+                    data-testid={`button-delete-${doc.id}`}
+                  >
+                    <Trash2 className="w-3 h-3" />
+                    Remove
                   </button>
                 )}
               </div>

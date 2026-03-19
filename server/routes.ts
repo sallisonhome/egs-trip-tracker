@@ -444,6 +444,12 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
     res.json(doc);
   });
 
+  app.delete("/api/source-documents/:id", async (req, res) => {
+    const id = parseInt(req.params.id);
+    await storage.deleteSourceDocument(id);
+    res.status(204).send();
+  });
+
   // ── AI Parse endpoint — triggers LLM extraction on a source document ──
   app.post("/api/source-documents/:id/parse", async (req, res) => {
     const id = parseInt(req.params.id);
