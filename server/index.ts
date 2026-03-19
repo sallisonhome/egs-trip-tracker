@@ -38,6 +38,7 @@ app.use(
   }),
 );
 
+import { log } from "./log";
 export { log } from "./log";
 
 app.use((req, res, next) => {
