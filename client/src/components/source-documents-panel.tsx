@@ -199,17 +199,38 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
                     Re-upload file
                   </button>
                 )}
-                {/* Delete confirmation inline */}
+                {/* Delete */}
                 {deletingId === doc.id ? (
                   <span className="inline-flex items-center gap-1.5 mt-1 text-xs">
                     <span className="text-red-600 dark:text-red-400 font-medium">Remove this document?</span>
                     <button
                       className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-semibold cursor-pointer"
-                      onClick={(e) => { e.stopPropagation(); e.preventDefault(); deleteMutation.mutate(doc.id); }}
-                      disabled={deleteMutation.isPending}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        const id = doc.id;
+                        setDeletingId(null);
+                        // Optimistically remove from cache
+                        qc.setQueryData(
+                          ["/api/events", eventId, "source-documents"],
+                          (old: SourceDocument[] | undefined) => (old ?? []).filter(d => d.id !== id)
+                        );
+                        // Fire DELETE in background
+                        fetch(`/api/source-documents/${id}`, { method: "DELETE" })
+                          .then(r => {
+                            if (!r.ok) throw new Error(`${r.status}`);
+                            qc.invalidateQueries({ queryKey: ["/api/events", eventId, "source-documents"] });
+                            qc.invalidateQueries({ queryKey: ["/api/events", eventId] });
+                            toast({ title: "Document removed" });
+                          })
+                          .catch(err => {
+                            qc.invalidateQueries({ queryKey: ["/api/events", eventId, "source-documents"] });
+                            toast({ title: "Delete failed", description: err.message, variant: "destructive" });
+                          });
+                      }}
                       data-testid={`button-confirm-delete-${doc.id}`}
                     >
-                      {deleteMutation.isPending ? "Removing…" : "Yes, remove"}
+                      Yes, remove
                     </button>
                     <button
                       className="text-muted-foreground hover:text-foreground cursor-pointer"
