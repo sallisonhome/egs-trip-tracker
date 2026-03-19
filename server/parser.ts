@@ -121,7 +121,9 @@ Rules:
 - Omit null/undefined optional fields rather than including them as null.`;
 
 async function callClaude(rawText: string): Promise<ParsedReport> {
-  const client = new Anthropic();
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("ANTHROPIC_API_KEY environment variable is not set");
+  const client = new Anthropic({ apiKey });
 
   const message = await client.messages.create({
     model: "claude-sonnet-4-6",

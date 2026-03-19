@@ -68,6 +68,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Log key presence at startup so we can diagnose missing env vars
+  log(`ANTHROPIC_API_KEY: ${process.env.ANTHROPIC_API_KEY ? "SET (" + process.env.ANTHROPIC_API_KEY.slice(0,12) + "...)" : "*** NOT SET — AI extraction will fail ***"}`);
+
   // Initialize storage (Postgres if DATABASE_URL set, else in-memory)
   const storageInstance = await createStorage();
   initStorage(storageInstance);
