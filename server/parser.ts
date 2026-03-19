@@ -124,7 +124,7 @@ async function callClaude(rawText: string): Promise<ParsedReport> {
   const client = new Anthropic();
 
   const message = await client.messages.create({
-    model: "claude_sonnet_4_6",
+    model: "claude-sonnet-4-6",
     max_tokens: 4096,
     messages: [
       {
