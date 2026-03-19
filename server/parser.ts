@@ -130,7 +130,7 @@ Return a JSON object matching this exact schema:
 
 // Max characters to send to Claude — prevents OOM on very large documents.
 // 60k chars ≈ ~15k tokens of input, well within Claude's 1M context window.
-const MAX_INPUT_CHARS = 60_000;
+const MAX_INPUT_CHARS = 120_000;
 
 async function callClaude(rawText: string): Promise<ParsedReport> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -148,7 +148,7 @@ async function callClaude(rawText: string): Promise<ParsedReport> {
 
   const message = await client.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 32000,
+    max_tokens: 64000,
     messages: [
       {
         role: "user",
