@@ -53,13 +53,20 @@ export default function EventListPage() {
 
   const deleteEvent = useMutation({
     mutationFn: (id: number) => apiRequest("DELETE", `/api/events/${id}`),
-    onSuccess: () => {
+    onMutate: (id) => {
+      // Optimistically remove from list immediately
+      qc.setQueryData(
+        ["/api/events"],
+        (old: EventWithStats[] | undefined) => (old ?? []).filter(e => e.id !== id)
+      );
       setDeletingEventId(null);
+    },
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/events"] });
       toast({ title: "Event deleted" });
     },
     onError: (err: any) => {
-      setDeletingEventId(null);
+      qc.invalidateQueries({ queryKey: ["/api/events"] });
       toast({ title: "Delete failed", description: err.message, variant: "destructive" });
     },
   });

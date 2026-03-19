@@ -61,14 +61,23 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
       const res = await fetch(`/api/source-documents/${docId}`, { method: "DELETE" });
       if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
     },
+    onMutate: (docId) => {
+      // Optimistically remove from cache immediately
+      qc.setQueryData(
+        ["/api/events", eventId, "source-documents"],
+        (old: SourceDocument[] | undefined) => (old ?? []).filter(d => d.id !== docId)
+      );
+    },
     onSuccess: (_data, docId) => {
       setDeletingId(null);
       qc.invalidateQueries({ queryKey: ["/api/events", eventId, "source-documents"] });
       qc.invalidateQueries({ queryKey: ["/api/events", eventId] });
       toast({ title: "Document removed" });
     },
-    onError: (err: any) => {
+    onError: (err: any, docId) => {
       setDeletingId(null);
+      // Restore on error
+      qc.invalidateQueries({ queryKey: ["/api/events", eventId, "source-documents"] });
       toast({ title: "Delete failed", description: err.message, variant: "destructive" });
     },
   });
