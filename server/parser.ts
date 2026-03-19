@@ -464,7 +464,6 @@ export async function generateExecSummary(
       topOpportunities: parsed.topOpportunities ?? null,
       topRisks: parsed.topRisks ?? null,
       topActions: parsed.topActions ?? null,
-      generatedByUserId: null,
     });
 
     log(`[parser] exec summary generated for event=${eventId}`, "parser");
