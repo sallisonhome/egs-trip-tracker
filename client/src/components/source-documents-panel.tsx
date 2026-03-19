@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { SourceDocument } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -50,24 +51,27 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
     },
   });
 
+  // Track which doc IDs are currently being re-extracted
+  const [reparsing, setReparsing] = useState<Set<number>>(new Set());
+
   const parseMutation = useMutation({
     mutationFn: async (docId: number) => {
       return apiRequest("POST", `/api/source-documents/${docId}/parse`);
     },
-    onSuccess: () => {
-      // Refetch docs to show "Extracting…" state immediately
+    onMutate: (docId) => {
+      setReparsing(prev => new Set(prev).add(docId));
+    },
+    onSuccess: (_data, docId) => {
+      setReparsing(prev => { const s = new Set(prev); s.delete(docId); return s; });
       qc.invalidateQueries({ queryKey: ["/api/events", eventId, "source-documents"] });
       qc.invalidateQueries({ queryKey: ["/api/events", eventId, "meetings"] });
       qc.invalidateQueries({ queryKey: ["/api/events", eventId] });
     },
-    onError: (err: any) => {
-      toast({ title: "Re-parse failed", description: err.message, variant: "destructive" });
+    onError: (err: any, docId) => {
+      setReparsing(prev => { const s = new Set(prev); s.delete(docId); return s; });
+      toast({ title: "Re-extract failed", description: err.message, variant: "destructive" });
     },
   });
-
-  // After extraction completes, refresh everything
-  const prevPendingCount =
-    docs?.filter((d) => d.parsingStatus === "pending").length ?? 0;
 
   return (
     <Card data-testid="panel-source-documents">
@@ -93,7 +97,8 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
           const Icon = stc.icon;
           const StatusIcon = psc.icon;
           const isPending = doc.parsingStatus === "pending";
-          const canReparse = !isPending && !!doc.rawText;
+          const isReparsing = reparsing.has(doc.id);
+          const canReparse = !isPending && !isReparsing && !!doc.rawText;
 
           return (
             <div
@@ -110,8 +115,8 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
                   <span
                     className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium ${psc.classes}`}
                   >
-                    <StatusIcon className={`w-3 h-3 ${isPending ? "animate-spin" : ""}`} />
-                    {psc.label}
+                    <StatusIcon className={`w-3 h-3 ${isPending || isReparsing ? "animate-spin" : ""}`} />
+                    {isReparsing ? "Extracting…" : psc.label}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
@@ -127,23 +132,20 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
                     {doc.rawTextExcerpt}
                   </p>
                 )}
-                {canReparse && (
+                {(canReparse || isReparsing) && (
                   <Button
                     variant="ghost"
                     size="sm"
                     className="h-6 px-2 text-xs mt-1 text-muted-foreground hover:text-foreground gap-1"
-                    onClick={() => {
-                      parseMutation.mutate(doc.id);
-                      // Immediately mark as pending in the UI
-                      qc.invalidateQueries({
-                        queryKey: ["/api/events", eventId, "source-documents"],
-                      });
-                    }}
-                    disabled={parseMutation.isPending}
+                    onClick={() => parseMutation.mutate(doc.id)}
+                    disabled={isReparsing}
                     data-testid={`button-reparse-${doc.id}`}
                   >
-                    <RefreshCw className="w-3 h-3" />
-                    Re-extract
+                    {isReparsing
+                      ? <Loader2 className="w-3 h-3 animate-spin" />
+                      : <RefreshCw className="w-3 h-3" />
+                    }
+                    {isReparsing ? "Extracting…" : "Re-extract"}
                   </Button>
                 )}
               </div>
