@@ -5,7 +5,7 @@ import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import { storage } from "./storage";
 import { parseAndIngest } from "./parser";
-import { log } from "./index";
+import { log } from "./log";
 import {
   insertEventSchema, insertMeetingSchema, insertCompanySchema,
   insertContactSchema, insertGameSchema, insertMeetingGameSchema,

@@ -13,7 +13,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { storage } from "./storage";
-import { log } from "./index";
+import { log } from "./log";
 
 // ─── Types returned by Claude ────────────────────────────────────────────────
 
