@@ -55,6 +55,8 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
   const [reparsingIds, setReparsingIds] = useState<number[]>([]);
   // Track which doc ID is pending delete confirmation
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  // Track locally removed doc IDs so they hide instantly without waiting for cache
+  const [removedIds, setRemovedIds] = useState<number[]>([]);
 
   const deleteMutation = useMutation({
     mutationFn: async (docId: number) => {
@@ -122,7 +124,7 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
             No source documents yet. Use "Ingest Report" to add one.
           </p>
         )}
-        {docs?.map((doc) => {
+        {docs?.filter(d => !removedIds.includes(d.id)).map((doc) => {
           const stc = sourceTypeConfig[doc.sourceType] ?? sourceTypeConfig.other;
           const psc = parsingStatusConfig[doc.parsingStatus];
           const Icon = stc.icon;
@@ -209,12 +211,9 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
                         e.stopPropagation();
                         e.preventDefault();
                         const id = doc.id;
+                        // Hide immediately via local state — works regardless of cache/polling
+                        setRemovedIds(prev => [...prev, id]);
                         setDeletingId(null);
-                        // Optimistically remove from cache
-                        qc.setQueryData(
-                          ["/api/events", eventId, "source-documents"],
-                          (old: SourceDocument[] | undefined) => (old ?? []).filter(d => d.id !== id)
-                        );
                         // Fire DELETE in background
                         fetch(`/api/source-documents/${id}`, { method: "DELETE" })
                           .then(r => {
@@ -224,7 +223,8 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
                             toast({ title: "Document removed" });
                           })
                           .catch(err => {
-                            qc.invalidateQueries({ queryKey: ["/api/events", eventId, "source-documents"] });
+                            // Restore on error
+                            setRemovedIds(prev => prev.filter(x => x !== id));
                             toast({ title: "Delete failed", description: err.message, variant: "destructive" });
                           });
                       }}
