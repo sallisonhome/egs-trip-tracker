@@ -148,7 +148,7 @@ async function callClaude(rawText: string): Promise<ParsedReport> {
 
   const message = await client.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 16000,
+    max_tokens: 32000,
     messages: [
       {
         role: "user",
@@ -173,7 +173,62 @@ async function callClaude(rawText: string): Promise<ParsedReport> {
   try {
     return JSON.parse(jsonStr) as ParsedReport;
   } catch {
+    // Response was likely truncated mid-JSON (max_tokens hit).
+    // Try to salvage fully-formed meeting objects before the cutoff.
+    const salvaged = salvageTruncatedJSON(jsonStr);
+    if (salvaged && salvaged.meetings.length > 0) {
+      log(`[parser] JSON was truncated — salvaged ${salvaged.meetings.length} complete meeting(s)`, "parser");
+      return salvaged;
+    }
     throw new Error(`Claude returned invalid JSON: ${cleaned.slice(0, 200)}`);
+  }
+}
+
+/**
+ * When Claude truncates mid-response, extract all complete meeting objects
+ * that appear before the cutoff by finding balanced braces.
+ */
+function salvageTruncatedJSON(raw: string): ParsedReport | null {
+  try {
+    // Find the meetings array start
+    const arrStart = raw.indexOf('"meetings"');
+    if (arrStart === -1) return null;
+    const bracketStart = raw.indexOf("[", arrStart);
+    if (bracketStart === -1) return null;
+
+    const meetings: ParsedMeeting[] = [];
+    let i = bracketStart + 1;
+    while (i < raw.length) {
+      // Skip whitespace between objects
+      while (i < raw.length && /\s|,/.test(raw[i])) i++;
+      if (raw[i] !== "{") break;
+
+      // Find the end of this meeting object by counting braces
+      let depth = 0;
+      let j = i;
+      while (j < raw.length) {
+        if (raw[j] === "{") depth++;
+        else if (raw[j] === "}") {
+          depth--;
+          if (depth === 0) { j++; break; }
+        }
+        j++;
+      }
+
+      if (depth !== 0) break; // incomplete object — stop here
+
+      try {
+        const obj = JSON.parse(raw.slice(i, j)) as ParsedMeeting;
+        if (obj.companyName) meetings.push(obj);
+      } catch {
+        break; // malformed object — stop
+      }
+      i = j;
+    }
+
+    return meetings.length > 0 ? { meetings } : null;
+  } catch {
+    return null;
   }
 }
 
