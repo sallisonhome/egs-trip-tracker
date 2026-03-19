@@ -32,6 +32,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://egs:egspassword@db:5432/egs_trip_tracker
       PORT: 3000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
     ports:
       - "3000:3000"
 

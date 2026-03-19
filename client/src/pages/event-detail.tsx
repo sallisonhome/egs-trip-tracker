@@ -163,6 +163,9 @@ export default function EventDetailPage() {
       const r = await fetch(`/api/events/${eventId}/meetings`);
       return r.json();
     },
+    // Refetch meetings periodically while source docs are being parsed
+    refetchInterval: 6000,
+    refetchIntervalInBackground: false,
   });
 
   if (eventLoading) {

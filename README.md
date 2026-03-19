@@ -12,15 +12,25 @@ The easiest way to run everything — app + persistent Postgres database — wit
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
 
+### Setup (one-time)
+
+1. Get a free Anthropic API key from [console.anthropic.com](https://console.anthropic.com) (needed for AI trip report extraction)
+2. Open the `.env` file in the project root and paste your key:
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
 ### Start
 
 ```bash
 git clone https://github.com/sallisonhome/egs-trip-tracker.git
 cd egs-trip-tracker
+# Edit .env and set your ANTHROPIC_API_KEY first (see above)
 docker compose up --build
 ```
 
-That's it. Open **http://localhost:3000** in your browser.
+Open **http://localhost:3000** in your browser.
 
 - The database is stored in a Docker volume (`egs_pgdata`) — data persists across restarts
 - On first run, all tables are created and demo seed data is loaded automatically
@@ -76,6 +86,7 @@ Open **http://localhost:5000**
 | `DATABASE_URL` | Postgres connection string | `postgresql://egs:egspassword@db:5432/egs_trip_tracker` |
 | `NODE_ENV` | `development` or `production` | `production` |
 | `PORT` | Port to listen on | `3000` |
+| `ANTHROPIC_API_KEY` | Anthropic API key for AI extraction | _(required — get from console.anthropic.com)_ |
 
 ---
 
@@ -100,3 +111,12 @@ Supported formats:
 - Google Docs URL (shared as "Anyone with link can view")
 - PDF file upload
 - Word (.docx) file upload
+
+After ingesting, the app automatically sends the text to Claude AI to extract:
+- **Meetings** — one record per meeting block
+- **Companies** — publisher/developer names
+- **Contacts** — attendee names, titles, emails
+- **Games** — titles, EGS status, deal status, sentiment
+- **Platform Topics** — commercial terms, tools, discovery, etc.
+
+All extracted records appear immediately in the Event Detail page. You can re-extract at any time using the **Re-extract** button on any source document.

@@ -4,6 +4,8 @@ import multer from "multer";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import { storage } from "./storage";
+import { parseAndIngest } from "./parser";
+import { log } from "./index";
 import {
   insertEventSchema, insertMeetingSchema, insertCompanySchema,
   insertContactSchema, insertGameSchema, insertMeetingGameSchema,
@@ -234,10 +236,38 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
     const doc = await storage.createSourceDocument(parsed.data);
     const rawText = parsed.data.rawText ?? "";
     const updated = await storage.updateSourceDocument(doc.id, {
-      parsingStatus: "success",
-      parsingLog: `Ingested at ${new Date().toISOString()}. Source type: ${doc.sourceType}.`,
+      parsingStatus: rawText ? "pending" : "success",
+      parsingLog: rawText
+        ? "AI extraction queued..."
+        : `Ingested at ${new Date().toISOString()}. Source type: ${doc.sourceType}.`,
       rawTextExcerpt: (rawText || parsed.data.rawTextExcerpt || "").slice(0, 400),
     });
+    // Auto-parse if there's text
+    if (rawText) {
+      (async () => {
+        try {
+          const result = await parseAndIngest(doc.id, doc.eventId, rawText);
+          const summary = [
+            `AI extraction complete.`,
+            `Meetings: ${result.meetingsCreated}`,
+            `Companies: ${result.companiesCreated}`,
+            `Contacts: ${result.contactsCreated}`,
+            `Games: ${result.gamesCreated}`,
+            `Topics: ${result.topicsCreated}`,
+            ...(result.errors.length ? [`Errors: ${result.errors.join("; ")}`] : []),
+          ].join(" \u00b7 ");
+          await storage.updateSourceDocument(doc.id, {
+            parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
+            parsingLog: summary,
+          });
+        } catch (err: any) {
+          await storage.updateSourceDocument(doc.id, {
+            parsingStatus: "failed",
+            parsingLog: `AI extraction failed: ${err.message}`,
+          });
+        }
+      })();
+    }
     res.status(201).json(updated);
   });
 
@@ -267,11 +297,37 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
         sourceType: "google_doc",
         externalUrl: url,
         uploadedByUserId: parseInt(uploadedByUserId),
-        parsingStatus: "success",
-        parsingLog: `Google Doc fetched successfully. ${rawText.length} characters extracted.`,
+        parsingStatus: "pending",
+        parsingLog: `Google Doc fetched. ${rawText.length} characters. AI extraction queued...`,
         rawText,
         rawTextExcerpt: rawText.slice(0, 400),
       });
+
+      // Auto-parse
+      const eid = parseInt(eventId);
+      ;(async () => {
+        try {
+          const result = await parseAndIngest(doc.id, eid, rawText);
+          const summary = [
+            `AI extraction complete.`,
+            `Meetings: ${result.meetingsCreated}`,
+            `Companies: ${result.companiesCreated}`,
+            `Contacts: ${result.contactsCreated}`,
+            `Games: ${result.gamesCreated}`,
+            `Topics: ${result.topicsCreated}`,
+            ...(result.errors.length ? [`Errors: ${result.errors.join("; ")}`] : []),
+          ].join(" \u00b7 ");
+          await storage.updateSourceDocument(doc.id, {
+            parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
+            parsingLog: summary,
+          });
+        } catch (err: any) {
+          await storage.updateSourceDocument(doc.id, {
+            parsingStatus: "failed",
+            parsingLog: `AI extraction failed: ${err.message}`,
+          });
+        }
+      })();
 
       res.status(201).json({ ...doc, characterCount: rawText.length });
     } catch (err: any) {
@@ -330,11 +386,38 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
         sourceType,
         originalFileName: file.originalname,
         uploadedByUserId,
-        parsingStatus,
-        parsingLog,
+        parsingStatus: rawText ? "pending" : parsingStatus,
+        parsingLog: rawText ? `${parsingLog} AI extraction queued...` : parsingLog,
         rawText: rawText || null,
         rawTextExcerpt: rawText.slice(0, 400) || `[${file.originalname} — ${(file.size / 1024).toFixed(0)} KB]`,
       });
+
+      // Auto-parse extracted text
+      if (rawText) {
+        ;(async () => {
+          try {
+            const result = await parseAndIngest(doc.id, eventId, rawText);
+            const summary = [
+              `AI extraction complete.`,
+              `Meetings: ${result.meetingsCreated}`,
+              `Companies: ${result.companiesCreated}`,
+              `Contacts: ${result.contactsCreated}`,
+              `Games: ${result.gamesCreated}`,
+              `Topics: ${result.topicsCreated}`,
+              ...(result.errors.length ? [`Errors: ${result.errors.join("; ")}`] : []),
+            ].join(" \u00b7 ");
+            await storage.updateSourceDocument(doc.id, {
+              parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
+              parsingLog: summary,
+            });
+          } catch (err: any) {
+            await storage.updateSourceDocument(doc.id, {
+              parsingStatus: "failed",
+              parsingLog: `AI extraction failed: ${err.message}`,
+            });
+          }
+        })();
+      }
 
       res.status(201).json({ ...doc, characterCount: rawText.length });
     } catch (err: any) {
@@ -347,6 +430,48 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
     const id = parseInt(req.params.id);
     const doc = await storage.updateSourceDocument(id, req.body);
     res.json(doc);
+  });
+
+  // ── AI Parse endpoint — triggers LLM extraction on a source document ──
+  app.post("/api/source-documents/:id/parse", async (req, res) => {
+    const id = parseInt(req.params.id);
+    const doc = await storage.getSourceDocumentById(id);
+    if (!doc) return res.status(404).json({ message: "Document not found" });
+    if (!doc.rawText) return res.status(400).json({ message: "Document has no raw text to parse" });
+
+    // Mark as pending immediately
+    await storage.updateSourceDocument(id, {
+      parsingStatus: "pending",
+      parsingLog: "AI extraction in progress...",
+    });
+
+    // Run async so client gets immediate 202 response
+    (async () => {
+      try {
+        const result = await parseAndIngest(id, doc.eventId, doc.rawText!);
+        const summary = [
+          `AI extraction complete.`,
+          `Meetings: ${result.meetingsCreated}`,
+          `Companies: ${result.companiesCreated}`,
+          `Contacts: ${result.contactsCreated}`,
+          `Games: ${result.gamesCreated}`,
+          `Topics: ${result.topicsCreated}`,
+          ...(result.errors.length ? [`Errors: ${result.errors.join("; ")}`] : []),
+        ].join(" · ");
+        await storage.updateSourceDocument(id, {
+          parsingStatus: result.errors.length && result.meetingsCreated === 0 ? "failed" : "success",
+          parsingLog: summary,
+        });
+      } catch (err: any) {
+        log(`[parse] error doc=${id}: ${err.message}`, "parser");
+        await storage.updateSourceDocument(id, {
+          parsingStatus: "failed",
+          parsingLog: `AI extraction failed: ${err.message}`,
+        });
+      }
+    })();
+
+    res.status(202).json({ message: "Parsing started", documentId: id });
   });
 
   // ── Dashboard aggregates ──

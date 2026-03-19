@@ -1,23 +1,30 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { SourceDocument } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FileText, Link2, Upload, AlignLeft, Clock, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  FileText, Link2, Upload, AlignLeft,
+  Clock, CheckCircle2, XCircle, AlertCircle,
+  RefreshCw, Loader2,
+} from "lucide-react";
 import { format } from "date-fns";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 const sourceTypeConfig = {
-  pasted_text: { label: "Pasted Text", icon: AlignLeft, color: "text-blue-500" },
-  google_doc: { label: "Google Doc", icon: Link2, color: "text-green-500" },
-  pdf_file: { label: "PDF", icon: FileText, color: "text-red-500" },
-  word_file: { label: "Word Doc", icon: Upload, color: "text-blue-600" },
-  other: { label: "Other", icon: FileText, color: "text-muted-foreground" },
+  pasted_text:  { label: "Pasted Text", icon: AlignLeft,  color: "text-blue-500" },
+  google_doc:   { label: "Google Doc",  icon: Link2,       color: "text-green-500" },
+  pdf_file:     { label: "PDF",         icon: FileText,    color: "text-red-500" },
+  word_file:    { label: "Word Doc",    icon: Upload,      color: "text-blue-600" },
+  other:        { label: "Other",       icon: FileText,    color: "text-muted-foreground" },
 };
 
 const parsingStatusConfig = {
-  pending: { label: "Pending", icon: Clock, classes: "bg-muted text-muted-foreground" },
-  success: { label: "Parsed", icon: CheckCircle2, classes: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" },
-  failed: { label: "Failed", icon: XCircle, classes: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300" },
-  partially_parsed: { label: "Partial", icon: AlertCircle, classes: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300" },
+  pending:          { label: "Extracting…", icon: Loader2,        classes: "bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-300" },
+  success:          { label: "Extracted",   icon: CheckCircle2,   classes: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300" },
+  failed:           { label: "Failed",      icon: XCircle,        classes: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300" },
+  partially_parsed: { label: "Partial",     icon: AlertCircle,    classes: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300" },
 };
 
 interface SourceDocumentsPanelProps {
@@ -26,13 +33,41 @@ interface SourceDocumentsPanelProps {
 }
 
 export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocumentsPanelProps) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+
   const { data: docs, isLoading } = useQuery<SourceDocument[]>({
     queryKey: ["/api/events", eventId, "source-documents"],
     queryFn: async () => {
       const r = await fetch(`/api/events/${eventId}/source-documents`);
       return r.json();
     },
+    // Poll every 4s while any doc is in "pending" state so UI auto-updates after extraction
+    refetchInterval: (query) => {
+      const data = query.state.data as SourceDocument[] | undefined;
+      if (!data) return false;
+      return data.some((d) => d.parsingStatus === "pending") ? 4000 : false;
+    },
   });
+
+  const parseMutation = useMutation({
+    mutationFn: async (docId: number) => {
+      return apiRequest("POST", `/api/source-documents/${docId}/parse`);
+    },
+    onSuccess: () => {
+      // Refetch docs to show "Extracting…" state immediately
+      qc.invalidateQueries({ queryKey: ["/api/events", eventId, "source-documents"] });
+      qc.invalidateQueries({ queryKey: ["/api/events", eventId, "meetings"] });
+      qc.invalidateQueries({ queryKey: ["/api/events", eventId] });
+    },
+    onError: (err: any) => {
+      toast({ title: "Re-parse failed", description: err.message, variant: "destructive" });
+    },
+  });
+
+  // After extraction completes, refresh everything
+  const prevPendingCount =
+    docs?.filter((d) => d.parsingStatus === "pending").length ?? 0;
 
   return (
     <Card data-testid="panel-source-documents">
@@ -48,36 +83,68 @@ export function SourceDocumentsPanel({ eventId, onIngestClick }: SourceDocuments
       <CardContent className="space-y-2">
         {isLoading && <p className="text-xs text-muted-foreground">Loading...</p>}
         {docs?.length === 0 && (
-          <p className="text-xs text-muted-foreground py-2">No source documents yet. Use "Ingest Report" to add one.</p>
+          <p className="text-xs text-muted-foreground py-2">
+            No source documents yet. Use "Ingest Report" to add one.
+          </p>
         )}
-        {docs?.map(doc => {
+        {docs?.map((doc) => {
           const stc = sourceTypeConfig[doc.sourceType] ?? sourceTypeConfig.other;
           const psc = parsingStatusConfig[doc.parsingStatus];
           const Icon = stc.icon;
           const StatusIcon = psc.icon;
+          const isPending = doc.parsingStatus === "pending";
+          const canReparse = !isPending && !!doc.rawText;
+
           return (
-            <div key={doc.id} className="flex items-start gap-3 p-2.5 rounded-md bg-muted/40" data-testid={`doc-item-${doc.id}`}>
+            <div
+              key={doc.id}
+              className="flex items-start gap-3 p-2.5 rounded-md bg-muted/40"
+              data-testid={`doc-item-${doc.id}`}
+            >
               <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${stc.color}`} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs font-medium truncate">
                     {doc.originalFileName ?? doc.externalUrl?.slice(0, 40) ?? stc.label}
                   </span>
-                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium ${psc.classes}`}>
-                    <StatusIcon className="w-3 h-3" />
+                  <span
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium ${psc.classes}`}
+                  >
+                    <StatusIcon className={`w-3 h-3 ${isPending ? "animate-spin" : ""}`} />
                     {psc.label}
                   </span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {stc.label} · {format(new Date(doc.uploadedAt), "MMM d, yyyy")}
                 </p>
-                {doc.rawTextExcerpt && (
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2 font-mono leading-tight">
+                {doc.parsingLog && (
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-2 italic">
+                    {doc.parsingLog}
+                  </p>
+                )}
+                {doc.rawTextExcerpt && !doc.parsingLog?.startsWith("AI extraction") && (
+                  <p className="text-xs text-muted-foreground mt-1 line-clamp-1 font-mono leading-tight">
                     {doc.rawTextExcerpt}
                   </p>
                 )}
-                {doc.parsingLog && (
-                  <p className="text-xs text-muted-foreground mt-1 line-clamp-1 italic">{doc.parsingLog}</p>
+                {canReparse && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-xs mt-1 text-muted-foreground hover:text-foreground gap-1"
+                    onClick={() => {
+                      parseMutation.mutate(doc.id);
+                      // Immediately mark as pending in the UI
+                      qc.invalidateQueries({
+                        queryKey: ["/api/events", eventId, "source-documents"],
+                      });
+                    }}
+                    disabled={parseMutation.isPending}
+                    data-testid={`button-reparse-${doc.id}`}
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Re-extract
+                  </Button>
                 )}
               </div>
             </div>
