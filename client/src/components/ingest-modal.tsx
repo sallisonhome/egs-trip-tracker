@@ -290,12 +290,12 @@ export function IngestModal({ open, onOpenChange, eventId: lockedEventId, eventN
               accept=".pdf,.txt,.md"
               label="Drop PDF or text file here"
               icon={FileText}
-              onFile={setPdfFile}
+              onFile={(f) => { setPdfFile(f); handleFileSubmit(f, "pdf_file"); }}
               file={pdfFile}
               loading={loading}
             />
             <p className="text-xs text-muted-foreground">
-              Supported: .pdf, .txt, .md — text is extracted and fully saved to the database.
+              Supported: .pdf, .txt, .md — drop the file to auto-upload, or click to browse.
             </p>
             <Button
               onClick={() => pdfFile && handleFileSubmit(pdfFile, "pdf_file")}
@@ -312,12 +312,12 @@ export function IngestModal({ open, onOpenChange, eventId: lockedEventId, eventN
               accept=".docx,.doc,.txt,.md"
               label="Drop Word doc or text file here"
               icon={Upload}
-              onFile={setWordFile}
+              onFile={(f) => { setWordFile(f); handleFileSubmit(f, "word_file"); }}
               file={wordFile}
               loading={loading}
             />
             <p className="text-xs text-muted-foreground">
-              Supported: .docx, .doc, .txt, .md — full text is extracted and saved to the database.
+              Supported: .docx, .doc, .txt, .md — drop the file to auto-upload, or click to browse.
             </p>
             <Button
               onClick={() => wordFile && handleFileSubmit(wordFile, "word_file")}

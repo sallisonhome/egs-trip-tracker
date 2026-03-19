@@ -445,9 +445,15 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
   });
 
   app.delete("/api/source-documents/:id", async (req, res) => {
-    const id = parseInt(req.params.id);
-    await storage.deleteSourceDocument(id);
-    res.status(204).send();
+    try {
+      const id = parseInt(req.params.id);
+      log(`[routes] DELETE source-document id=${id}`, "express");
+      await storage.deleteSourceDocument(id);
+      res.status(204).send();
+    } catch (err: any) {
+      console.error("Delete source document error:", err);
+      res.status(500).json({ message: err.message ?? "Delete failed" });
+    }
   });
 
   // ── AI Parse endpoint — triggers LLM extraction on a source document ──
