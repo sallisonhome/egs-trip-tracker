@@ -20,6 +20,37 @@ import {
   type ParsedSection, type InsertParsedSection,
 } from "@shared/schema";
 
+// ── Drill-down entry types ──────────────────────────────────────────────────
+export interface TopicEntry {
+  meetingTopicId: number;
+  sentiment: string | null;
+  feedbackSummary: string | null;
+  requestOrBlocker: string | null;
+  priority: string | null;
+  meetingId: number;
+  meetingDate: string | null;
+  meetingLocation: string | null;
+  companyName: string;
+  eventId: number;
+  eventName: string;
+}
+
+export interface GameEntry {
+  meetingGameId: number;
+  gameSpecificSentiment: string | null;
+  discussionSummary: string | null;
+  dealStatus: string | null;
+  projectedLaunchTiming: string | null;
+  keyQuotes: string | null;
+  meetingId: number;
+  meetingDate: string | null;
+  meetingLocation: string | null;
+  companyName: string;
+  eventId: number;
+  eventName: string;
+}
+// ───────────────────────────────────────────────────────────────────────────
+
 export interface IStorage {
   // Users
   getUsers(): Promise<User[]>;
@@ -67,6 +98,7 @@ export interface IStorage {
 
   // MeetingGames
   getMeetingGames(meetingId: number): Promise<(MeetingGame & { game: Game })[]>;
+  getMeetingGameEntries(gameId: number): Promise<GameEntry[]>;
   addMeetingGame(data: InsertMeetingGame): Promise<MeetingGame>;
   removeMeetingGame(id: number): Promise<void>;
 
@@ -77,6 +109,7 @@ export interface IStorage {
 
   // MeetingTopics
   getMeetingTopics(meetingId: number): Promise<(MeetingTopic & { topic: PlatformTopic })[]>;
+  getMeetingTopicEntries(topicId: number): Promise<TopicEntry[]>;
   addMeetingTopic(data: InsertMeetingTopic): Promise<MeetingTopic>;
   removeMeetingTopic(id: number): Promise<void>;
 

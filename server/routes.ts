@@ -227,6 +227,20 @@ export function registerRoutes(httpServer: Server, app: Express): Server {
     res.json(topics);
   });
 
+  // All meeting-topic entries for a specific topic (drill-down)
+  app.get("/api/platform-topics/:id/entries", async (req, res) => {
+    const topicId = parseInt(req.params.id);
+    const entries = await storage.getMeetingTopicEntries(topicId);
+    res.json(entries);
+  });
+
+  // All meeting-game entries for a specific game (drill-down)
+  app.get("/api/games/:id/entries", async (req, res) => {
+    const gameId = parseInt(req.params.id);
+    const entries = await storage.getMeetingGameEntries(gameId);
+    res.json(entries);
+  });
+
   app.post("/api/platform-topics", async (req, res) => {
     const parsed = insertPlatformTopicSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: parsed.error.message });

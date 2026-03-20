@@ -71,12 +71,20 @@ export default function EventListPage() {
     },
   });
 
-  const filtered = (events ?? []).filter(e => {
-    const matchesSearch = e.name.toLowerCase().includes(search.toLowerCase()) ||
-      (e.city ?? "").toLowerCase().includes(search.toLowerCase());
-    const matchesType = typeFilter === "all" || e.eventType === typeFilter;
-    return matchesSearch && matchesType;
-  });
+  const filtered = (events ?? [])
+    .filter(e => {
+      const matchesSearch = e.name.toLowerCase().includes(search.toLowerCase()) ||
+        (e.city ?? "").toLowerCase().includes(search.toLowerCase());
+      const matchesType = typeFilter === "all" || e.eventType === typeFilter;
+      return matchesSearch && matchesType;
+    })
+    .sort((a, b) => {
+      // Newest first — events with no date go to the bottom
+      if (!a.startDate && !b.startDate) return 0;
+      if (!a.startDate) return 1;
+      if (!b.startDate) return -1;
+      return new Date(b.startDate).getTime() - new Date(a.startDate).getTime();
+    });
 
   return (
     <div className="p-6 max-w-5xl mx-auto">

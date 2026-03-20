@@ -1,16 +1,225 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "wouter";
 import type { Game, PlatformTopic } from "@shared/schema";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { SentimentBadge, SentimentBar } from "@/components/sentiment-badge";
 import {
-  Gamepad2, MessageSquare, TrendingUp, TrendingDown, Minus,
-  Target, LayoutDashboard, BarChart3
+  Gamepad2, MessageSquare, Target, LayoutDashboard,
+  ChevronRight, Calendar, Building2, MapPin, AlertCircle, Quote
 } from "lucide-react";
+import { format } from "date-fns";
 
 type GameWithTP = Game & { touchpointCount: number; sentiments: string[]; events: string[] };
 type TopicWithStats = PlatformTopic & { feedbackCount: number; posCount: number; neutCount: number; negCount: number };
+
+interface TopicEntry {
+  meetingTopicId: number;
+  sentiment: string | null;
+  feedbackSummary: string | null;
+  requestOrBlocker: string | null;
+  priority: string | null;
+  meetingId: number;
+  meetingDate: string | null;
+  meetingLocation: string | null;
+  companyName: string;
+  eventId: number;
+  eventName: string;
+}
+
+interface GameEntry {
+  meetingGameId: number;
+  gameSpecificSentiment: string | null;
+  discussionSummary: string | null;
+  dealStatus: string | null;
+  projectedLaunchTiming: string | null;
+  keyQuotes: string | null;
+  meetingId: number;
+  meetingDate: string | null;
+  meetingLocation: string | null;
+  companyName: string;
+  eventId: number;
+  eventName: string;
+}
+
+const priorityColors: Record<string, string> = {
+  high: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+  medium: "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300",
+  low: "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300",
+};
+
+const dealStatusLabels: Record<string, string> = {
+  initial_outreach: "Initial Outreach",
+  in_negotiation: "Negotiating",
+  signed: "Signed",
+  lost: "Lost",
+};
+
+function TopicDetailSheet({ topic, open, onClose }: { topic: TopicWithStats | null; open: boolean; onClose: () => void }) {
+  const { data: entries, isLoading } = useQuery<TopicEntry[]>({
+    queryKey: ["/api/platform-topics", topic?.id, "entries"],
+    queryFn: async () => {
+      const r = await fetch(`/api/platform-topics/${topic!.id}/entries`);
+      return r.json();
+    },
+    enabled: !!topic && open,
+  });
+
+  return (
+    <Sheet open={open} onOpenChange={v => !v && onClose()}>
+      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+        <SheetHeader className="mb-4">
+          <SheetTitle className="flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-primary" />
+            {topic?.name}
+          </SheetTitle>
+          {topic && (
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <span className="capitalize">{topic.category}</span>
+              <span>· {topic.feedbackCount} feedback {topic.feedbackCount === 1 ? "entry" : "entries"}</span>
+              <SentimentBar pos={topic.posCount} neu={topic.neutCount} neg={topic.negCount} />
+            </div>
+          )}
+        </SheetHeader>
+        {isLoading && (
+          <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-24 bg-muted animate-pulse rounded-lg" />)}</div>
+        )}
+        <div className="space-y-3">
+          {entries?.map(entry => (
+            <Card key={entry.meetingTopicId} className="border">
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-semibold">{entry.companyName}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {entry.sentiment && <SentimentBadge sentiment={entry.sentiment as any} size="sm" />}
+                    {entry.priority && (
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium capitalize ${priorityColors[entry.priority] ?? ""}`}>
+                        {entry.priority}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                  <a href={`#/events/${entry.eventId}`} className="hover:underline font-medium text-primary">{entry.eventName}</a>
+                  {entry.meetingDate && (
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {format(new Date(entry.meetingDate + "T12:00:00"), "MMM d, yyyy")}
+                    </span>
+                  )}
+                  {entry.meetingLocation && (
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-3 h-3" />{entry.meetingLocation}
+                    </span>
+                  )}
+                </div>
+                {entry.feedbackSummary && (
+                  <p className="text-sm text-foreground leading-relaxed">{entry.feedbackSummary}</p>
+                )}
+                {entry.requestOrBlocker && (
+                  <div className="flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded p-2 border border-amber-200 dark:border-amber-900">
+                    <AlertCircle className="w-3 h-3 mt-0.5 shrink-0" />
+                    <span><span className="font-semibold">Blocker/Request: </span>{entry.requestOrBlocker}</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+          {entries?.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-8">No feedback entries found.</p>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function GameDetailSheet({ game, open, onClose }: { game: GameWithTP | null; open: boolean; onClose: () => void }) {
+  const { data: entries, isLoading } = useQuery<GameEntry[]>({
+    queryKey: ["/api/games", game?.id, "entries"],
+    queryFn: async () => {
+      const r = await fetch(`/api/games/${game!.id}/entries`);
+      return r.json();
+    },
+    enabled: !!game && open,
+  });
+
+  return (
+    <Sheet open={open} onOpenChange={v => !v && onClose()}>
+      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
+        <SheetHeader className="mb-4">
+          <SheetTitle className="flex items-center gap-2">
+            <Gamepad2 className="w-4 h-4 text-primary" />
+            {game?.title}
+          </SheetTitle>
+          {game && (
+            <div className="flex items-center gap-3 text-sm text-muted-foreground">
+              <span>{game.touchpointCount} touchpoint{game.touchpointCount !== 1 ? "s" : ""}</span>
+              <span>·</span>
+              <span>{game.events.join(", ")}</span>
+            </div>
+          )}
+        </SheetHeader>
+        {isLoading && (
+          <div className="space-y-3">{[1,2,3].map(i => <div key={i} className="h-24 bg-muted animate-pulse rounded-lg" />)}</div>
+        )}
+        <div className="space-y-3">
+          {entries?.map(entry => (
+            <Card key={entry.meetingGameId} className="border">
+              <CardContent className="p-4 space-y-2">
+                <div className="flex items-start justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-semibold">{entry.companyName}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {entry.gameSpecificSentiment && <SentimentBadge sentiment={entry.gameSpecificSentiment as any} size="sm" />}
+                    {entry.dealStatus && (
+                      <Badge variant="outline" className="text-xs">{dealStatusLabels[entry.dealStatus] ?? entry.dealStatus}</Badge>
+                    )}
+                    {entry.projectedLaunchTiming && (
+                      <Badge variant="secondary" className="text-xs">{entry.projectedLaunchTiming}</Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
+                  <a href={`#/events/${entry.eventId}`} className="hover:underline font-medium text-primary">{entry.eventName}</a>
+                  {entry.meetingDate && (
+                    <span className="flex items-center gap-1">
+                      <Calendar className="w-3 h-3" />
+                      {format(new Date(entry.meetingDate + "T12:00:00"), "MMM d, yyyy")}
+                    </span>
+                  )}
+                  {entry.meetingLocation && (
+                    <span className="flex items-center gap-1">
+                      <MapPin className="w-3 h-3" />{entry.meetingLocation}
+                    </span>
+                  )}
+                </div>
+                {entry.discussionSummary && (
+                  <p className="text-sm text-foreground leading-relaxed">{entry.discussionSummary}</p>
+                )}
+                {entry.keyQuotes && (
+                  <div className="flex items-start gap-1.5 text-xs italic text-muted-foreground bg-muted/60 rounded p-2 border">
+                    <Quote className="w-3 h-3 mt-0.5 shrink-0" />
+                    <span>{entry.keyQuotes}</span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+          {entries?.length === 0 && (
+            <p className="text-sm text-muted-foreground text-center py-8">No touchpoint entries found.</p>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
 
 type DashboardData = {
   gamesWithTouchpoints: GameWithTP[];
@@ -45,6 +254,9 @@ function overallSentiment(sentiments: string[]): "positive" | "neutral" | "negat
 }
 
 export default function DashboardPage() {
+  const [selectedTopic, setSelectedTopic] = useState<TopicWithStats | null>(null);
+  const [selectedGame, setSelectedGame] = useState<GameWithTP | null>(null);
+
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ["/api/dashboard"],
     queryFn: async () => {
@@ -136,7 +348,7 @@ export default function DashboardPage() {
             {activeGames.map(game => {
               const sentiment = overallSentiment(game.sentiments);
               return (
-                <Card key={game.id} data-testid={`game-card-${game.id}`}>
+                <Card key={game.id} data-testid={`game-card-${game.id}`} className="cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setSelectedGame(game)}>
                   <CardContent className="p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -161,6 +373,7 @@ export default function DashboardPage() {
                           <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">{game.notes}</p>
                         )}
                       </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                     </div>
                   </CardContent>
                 </Card>
@@ -190,7 +403,7 @@ export default function DashboardPage() {
                 )
               );
               return (
-                <Card key={topic.id} data-testid={`topic-card-${topic.id}`}>
+                <Card key={topic.id} data-testid={`topic-card-${topic.id}`} className="cursor-pointer hover:bg-accent/50 transition-colors" onClick={() => setSelectedTopic(topic)}>
                   <CardContent className="p-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex-1 min-w-0">
@@ -211,6 +424,7 @@ export default function DashboardPage() {
                           <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2">{topic.description}</p>
                         )}
                       </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
                     </div>
                   </CardContent>
                 </Card>
@@ -276,6 +490,8 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       )}
+      <TopicDetailSheet topic={selectedTopic} open={!!selectedTopic} onClose={() => setSelectedTopic(null)} />
+      <GameDetailSheet game={selectedGame} open={!!selectedGame} onClose={() => setSelectedGame(null)} />
     </div>
   );
 }

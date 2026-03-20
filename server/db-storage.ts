@@ -286,6 +286,33 @@ export class DatabaseStorage implements IStorage {
     await db.delete(meetingGames).where(eq(meetingGames.id, id));
   }
 
+  async getMeetingGameEntries(gameId: number): Promise<import("./storage").GameEntry[]> {
+    const mgRows = await db.select().from(meetingGames).where(eq(meetingGames.gameId, gameId));
+    const result: import("./storage").GameEntry[] = [];
+    for (const mg of mgRows) {
+      const mtg = (await db.select().from(meetings).where(eq(meetings.id, mg.meetingId)))[0];
+      if (!mtg) continue;
+      const company = (await db.select().from(companies).where(eq(companies.id, mtg.companyId)))[0];
+      const ev = (await db.select().from(events).where(eq(events.id, mtg.eventId)))[0];
+      if (!ev) continue;
+      result.push({
+        meetingGameId: mg.id,
+        gameSpecificSentiment: mg.gameSpecificSentiment ?? null,
+        discussionSummary: mg.discussionSummary ?? null,
+        dealStatus: mg.dealStatus ?? null,
+        projectedLaunchTiming: mg.projectedLaunchTiming ?? null,
+        keyQuotes: mg.keyQuotes ?? null,
+        meetingId: mtg.id,
+        meetingDate: mtg.meetingDate ?? null,
+        meetingLocation: mtg.location ?? null,
+        companyName: company?.name ?? "Unknown",
+        eventId: ev.id,
+        eventName: ev.name,
+      });
+    }
+    return result;
+  }
+
   // ── PlatformTopics ─────────────────────────────────────────────────────────
 
   async getPlatformTopics(): Promise<PlatformTopic[]> {
@@ -330,6 +357,32 @@ export class DatabaseStorage implements IStorage {
 
   async removeMeetingTopic(id: number): Promise<void> {
     await db.delete(meetingTopics).where(eq(meetingTopics.id, id));
+  }
+
+  async getMeetingTopicEntries(topicId: number): Promise<import("./storage").TopicEntry[]> {
+    const mtRows = await db.select().from(meetingTopics).where(eq(meetingTopics.topicId, topicId));
+    const result: import("./storage").TopicEntry[] = [];
+    for (const mt of mtRows) {
+      const mtg = (await db.select().from(meetings).where(eq(meetings.id, mt.meetingId)))[0];
+      if (!mtg) continue;
+      const company = (await db.select().from(companies).where(eq(companies.id, mtg.companyId)))[0];
+      const ev = (await db.select().from(events).where(eq(events.id, mtg.eventId)))[0];
+      if (!ev) continue;
+      result.push({
+        meetingTopicId: mt.id,
+        sentiment: mt.sentiment ?? null,
+        feedbackSummary: mt.feedbackSummary ?? null,
+        requestOrBlocker: mt.requestOrBlocker ?? null,
+        priority: mt.priority ?? null,
+        meetingId: mtg.id,
+        meetingDate: mtg.meetingDate ?? null,
+        meetingLocation: mtg.location ?? null,
+        companyName: company?.name ?? "Unknown",
+        eventId: ev.id,
+        eventName: ev.name,
+      });
+    }
+    return result;
   }
 
   // ── EventExecutiveSummaries ────────────────────────────────────────────────
