@@ -139,13 +139,15 @@ function TopicDetailSheet({ topic, open, onClose }: { topic: TopicWithStats | nu
 }
 
 function GameDetailSheet({ game, open, onClose }: { game: GameWithTP | null; open: boolean; onClose: () => void }) {
+  const gameId = game?.id ?? null;
   const { data: entries, isLoading } = useQuery<GameEntry[]>({
-    queryKey: ["/api/games", game?.id, "entries"],
+    queryKey: ["/api/games", gameId, "entries"],
     queryFn: async () => {
-      const r = await fetch(`/api/games/${game!.id}/entries`);
+      const r = await fetch(`/api/games/${gameId}/entries`);
       return r.json();
     },
-    enabled: !!game && open,
+    enabled: !!gameId && open,
+    staleTime: 0,
   });
 
   return (
@@ -490,8 +492,8 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       )}
-      <TopicDetailSheet topic={selectedTopic} open={!!selectedTopic} onClose={() => setSelectedTopic(null)} />
-      <GameDetailSheet game={selectedGame} open={!!selectedGame} onClose={() => setSelectedGame(null)} />
+      <TopicDetailSheet key={`topic-${selectedTopic?.id}`} topic={selectedTopic} open={!!selectedTopic} onClose={() => setSelectedTopic(null)} />
+      <GameDetailSheet key={`game-${selectedGame?.id}`} game={selectedGame} open={!!selectedGame} onClose={() => setSelectedGame(null)} />
     </div>
   );
 }
