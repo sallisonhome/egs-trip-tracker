@@ -1,0 +1,87 @@
+name: Inspect Droplet
+
+# Manual diagnostic workflow — SSH into the droplet, dump the deployed
+# state of egs-trip-tracker, and print it back in the workflow logs so
+# we can see what's actually running vs what's in git.
+#
+# Usage: gh workflow run inspect.yml -R sallisonhome/egs-trip-tracker
+#
+# Reads three secrets (same values as sallisonhome/lifetime-class-booker):
+#   - DEPLOY_HOST     (e.g. 142.93.189.208)
+#   - DEPLOY_USER     (e.g. root)
+#   - DEPLOY_SSH_KEY  (private key, PEM format)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    name: Inspect droplet state
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+
+    steps:
+      - name: SSH + dump state
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          command_timeout: 3m
+          script: |
+            set -e
+            echo "──────── Droplet identity ────────"
+            hostname
+            date
+            echo ""
+
+            echo "──────── Locate egs-trip-tracker on droplet ────────"
+            # Try common paths
+            for p in /opt/egs-trip-tracker /root/egs-trip-tracker /home/*/egs-trip-tracker /var/www/egs-trip-tracker; do
+              if [ -d "$p" ]; then
+                echo "FOUND: $p"
+                APP_DIR="$p"
+              fi
+            done
+            APP_DIR="${APP_DIR:-/opt/egs-trip-tracker}"
+            echo "Using APP_DIR=$APP_DIR"
+            echo ""
+
+            echo "──────── Container / process state (port 3000) ────────"
+            docker ps --format '{{.ID}}  {{.Image}}  {{.Status}}  {{.Ports}}  {{.Names}}' 2>/dev/null | head -20 || echo "no docker"
+            ss -ltnp | grep -E ':3000|:5432' | head || echo "nothing on 3000/5432"
+            echo ""
+
+            cd "$APP_DIR" 2>/dev/null || { echo "APP_DIR does not exist"; exit 1; }
+
+            echo "──────── Git state on droplet ────────"
+            git log --oneline -5 2>/dev/null || echo "not a git repo"
+            git status --short 2>/dev/null | head -30 || echo "no git status"
+            git diff --stat 2>/dev/null | head -30 || true
+            echo ""
+
+            echo "──────── Directory tree (top 3 levels, no node_modules) ────────"
+            find . -maxdepth 3 -type d -not -path '*/node_modules*' -not -path '*/.git*' | sort | head -50
+            echo ""
+
+            echo "──────── Any file mentioning 'Download Trip Report PDF' ────────"
+            grep -rn "Download Trip Report PDF\|Download.*Trip.*Report\|downloadTripReport\|/api/events.*pdf\|/api/pdf\|/api/report\|generatePdf\|trip-report-pdf" \
+              --include='*.ts' --include='*.tsx' --include='*.js' --include='*.jsx' \
+              . 2>/dev/null | grep -v node_modules | head -40 || echo "nothing found"
+            echo ""
+
+            echo "──────── PDF-adjacent files (recently modified since May 20) ────────"
+            find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.py' \) \
+              -not -path './node_modules/*' -not -path './.git/*' \
+              -newer /tmp/marker_may20 2>/dev/null | head -30 || \
+              find . -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.jsx' -o -name '*.py' \) \
+              -not -path './node_modules/*' -not -path './.git/*' \
+              -newermt '2026-05-20' 2>/dev/null | head -40 || echo "no recent files"
+            echo ""
+
+            echo "──────── package.json diff vs upstream (pdf libs added?) ────────"
+            [ -f package.json ] && grep -E '"(jspdf|html2canvas|puppeteer|playwright|@react-pdf|pdfkit|pdf-lib|html-pdf|weasyprint|pdfmake|jsreport)"' package.json | head || echo "no pdf libs in package.json"
+            echo ""
+
+            echo "──────── Server logs (last 100 lines) ────────"
+            docker logs $(docker ps -q --filter 'publish=3000') --tail=100 2>&1 | head -100 || journalctl -u egs-trip-tracker --no-pager -n 100 2>/dev/null || echo "no logs"
